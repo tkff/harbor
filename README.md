@@ -1,0 +1,146 @@
+# Harbor
+
+A local-first desktop SSH workspace built with Tauri 2, React, TypeScript, Rust, russh, and xterm.js. Open source under MIT. Harbor is a working name.
+
+## Version 0.4.0 alpha
+
+- Create or unlock a password-protected KeePass KDBX vault.
+- Add, edit, search, organize, and delete saved SSH connections.
+- Store usernames and passwords in KDBX, never in the local SQLite index.
+- Connect through SSH password, imported private-key, or OpenSSH user-certificate authentication with interactive xterm.js terminals.
+- Open multiple terminal tabs; send keyboard input, paste, and resize the remote terminal.
+- Approve an unknown server's SHA-256 fingerprint before sending credentials; block changed identities.
+- Lock the vault and close all sessions and pending connections.
+- Save encrypted backups and refuse to overwrite a vault changed by another application.
+- Rebuild connection settings from Harbor custom fields when opening a vault on another computer.
+- Save local and remote TCP forwarding rules with each connection, optionally start them on connect, and start or stop them from the terminal’s **Port forwarding** panel.
+- Stop listeners and existing forwarded connections when stopping a rule, closing its SSH session, or locking the vault.
+
+Dynamic forwarding / SOCKS proxy, cloud synchronization, FIDO / security-key SSH identities, passkeys, SFTP, local shells, split panes, automatic idle locking, and shared-credential selection are not implemented yet.
+
+## Try it
+
+On Windows, open the provided `Harbor.exe`. It uses the Microsoft Edge WebView2 runtime, which normally comes with Windows 11. The first build is unsigned.
+
+1. Choose **Create a vault** and a local `.kdbx` filename.
+2. Set a master password with at least 12 characters. Harbor does not store this password between runs and cannot recover it.
+3. Choose **New connection**. Enter the SSH host, port, username, and authentication method. Import a private key and matching OpenSSH user certificate when applicable; the server must authorize your selected method.
+4. Choose **Connect**, compare the displayed server fingerprint with a trusted source, then choose **Trust & connect**.
+5. Use **Lock vault & close sessions** when finished. Normal application exit also closes network sessions.
+
+Use a dedicated Harbor vault while this alpha is being evaluated. The Rust `keepass` library labels KDBX writing experimental. Every save is re-opened for verification before replacement, but comprehensive compatibility testing across all KeePass extensions and database configurations is still needed. KDBX 4 vaults using a password, or password plus key file, are supported. Existing unrelated vault entries are preserved and are not shown as connections.
+
+Connection names, host addresses, ports, groups, tags, and forwarding rules are stored unencrypted in the local SQLite index. Usernames, passwords, imported private keys, their passphrases, and user certificates are stored inside KDBX. Terminal scrollback is held in memory while a tab is open. This version has manual locking; it does not automatically lock on idle or operating-system sleep.
+
+## Groups and tags
+
+Each host belongs to one group (General by default) and can have up to 20 tags. Set the group and comma-separated tags in **New connection** or **Edit connection**. Existing folders become groups automatically. Tags are trimmed, lowercased, deduplicated, and limited to 40 characters each.
+
+Select a group in the sidebar, then optionally select a tag to narrow it further. Click the selected tag again or the tag filter's � button to clear it. Search matches host names, addresses, groups, and tags. Tags on host rows are clickable filters.
+
+Groups use the existing portable `Harbor.Folder` field; tags use native KDBX entry tags, visible in KeePass-compatible applications. Both are recovered when opening the vault on another computer. Empty groups and standalone tags are not stored; they disappear from the sidebar when no host uses them.
+
+## SSH private keys and OpenSSH certificates
+
+In **New connection** or **Edit connection**, choose **SSH private key** or **OpenSSH certificate + private key**. Import an OpenSSH, PEM, or supported PPK private-key file and its passphrase if encrypted. Certificate authentication also needs the matching OpenSSH user certificate, commonly named id_ed25519-cert.pub. The files are imported into protected KDBX fields; Harbor does not modify the originals or depend on those file paths after saving.
+
+The editor shows the public-key fingerprint and, for certificates, the certificate ID, principals, CA fingerprint, and validity dates. Use **Replace / renew saved certificate** to import a renewed certificate while keeping the existing private key. Mismatched keys, invalid certificate signatures, and host certificates used as user certificates are rejected. Expired or future-dated certificates can be stored for inspection, but cannot be used to connect. The SSH server decides which public keys, certificate authorities, principals, and certificate options it authorizes. This version does not issue certificates or add SSH host-CA trust management.
+
+Password authentication remains available and does not require an SSH identity. An identity such as id_ed25519 is a private key, not another account. Website passkeys and OpenSSH FIDO/security-key identities are separate from imported keys. FIDO SSH signing and passkey support are future work.
+
+## Windows Hello as a vault second factor
+
+Unlock a dedicated test vault, then choose **Credential vault** in the sidebar (or **About this workspace → Vault security / Windows Hello**). Enter the current master password, choose a NEW recovery key-file location, and enable the second factor. Complete the Windows Hello enrollment prompt yourself. Existing files are never overwritten.
+
+This changes the vault to standard KeePass password-plus-key-file encryption. A random 32-byte key file is saved at your selected recovery location. Windows Hello signs a random challenge with a non-exportable Windows key; a hash of that signature protects the local factor using AES-256-GCM. Only that encrypted factor record, its challenge, and its Windows key identifier are stored in local SQLite. The master password is not cached. Every normal Hello unlock still requires the master password AND approval through Windows Hello (PIN, fingerprint, or face as supported by Windows).
+
+Keep the recovery key file separate from your vault, preferably offline. On macOS/Linux, in KeePassXC, after a Windows Hello reset, or if Hello is unavailable, open with the SAME master password AND recovery key file. The password alone cannot unlock a protected vault. To register Hello on another Windows PC, first unlock using the recovery file, then choose the existing recovery file in Vault security; the vault's factor is preserved. Each PC needs its own local Hello enrollment. The local Hello record is not part of the KDBX file and should not be synced as a portable credential.
+
+Losing BOTH Hello access and the recovery key file prevents access even if you know the master password. Older copies and external backups created before enrollment retain their old protection; manage those separately. Enabling 2FA protects the current vault and Harbor's own backup. This alpha does not yet include an in-app operation to remove the key-file factor; KeePassXC can manage the master-key components using the password and recovery file.
+
+This is vault protection, not Windows Hello SSH authentication and not a website passkey. Microsoft’s KeyCredential APIs are used directly; cancellation, unavailable Hello, missing Windows keys, invalid ciphertext, and incorrect composite vault credentials do not fall back to password-only access. Native Windows Hello enrollment and fingerprint/PIN interactions require manual testing on a Hello-enabled Windows account; automated tests do not claim to validate biometric hardware.
+
+## Port forwarding
+
+Edit or create a connection and choose **Add forwarding rule**. Choose **Local** or **Remote**, enter the listening address/port and destination host/port, and choose whether to start it with the SSH session. The default listen address is 127.0.0.1. Save and reconnect to apply edited rules to a new session.
+
+| Direction | Listener runs on | Destination is reached from | Example |
+| --- | --- | --- | --- |
+| Local | Your computer | SSH server | Local 127.0.0.1:5433 → server-side 127.0.0.1:5432 |
+| Remote | SSH server | Your computer | Server 127.0.0.1:9000 → your local 127.0.0.1:3000 |
+
+Open **Port forwarding** in a terminal tab to see each rule’s actual state and start or stop it. Stopping a rule terminates its existing forwarded TCP connections. A failed listener does not close the terminal. Remote forwarding depends on the SSH server permitting it; binding beyond loopback also depends on the server’s GatewayPorts policy and the network/firewall.
+
+Rules are scoped to an SSH session. Two tabs cannot both bind the same local address/port; one will report a port-in-use error. Rule changes affect new sessions. Up to 32 rules per connection and 128 simultaneous TCP connections per rule are supported. Listen and destination ports must be 1–65535; server-assigned ephemeral remote ports, UDP, and Unix socket forwarding are not included. Listeners default to loopback; deliberately choosing a broader listen address may expose the forwarded service to other computers.
+
+Remote listen/cancel requests have a 10-second deadline. If a server fails to acknowledge one, Harbor closes the SSH session so an unconfirmed server-side listener cannot remain attached to a live session. If a server explicitly refuses cancellation, Harbor keeps the rule marked active with an error; close that SSH session to release it.
+
+Dynamic forwarding / SOCKS proxy remains a future feature. The direction selector and session panel identify it as planned; this version creates no SOCKS listener.
+
+## Development
+
+Install Node.js 22+ and current stable Rust, plus [Tauri's platform prerequisites](https://v2.tauri.app/start/prerequisites/). The included `rust-toolchain.toml` selects stable Rust; current dependencies require Rust 1.89 or later.
+
+```sh
+npm ci
+npm run desktop
+```
+
+`npm run dev` starts a browser preview only. Vault access and SSH require the native desktop application.
+
+Build an installer for the operating system you are using:
+
+```sh
+npm run package
+```
+
+Windows needs Microsoft C++ Build Tools and WebView2; macOS needs Xcode command-line tools; Linux needs WebKitGTK and GTK development packages. Build and test on each target OS. A GitHub Actions workflow is included for Windows, macOS, and Ubuntu; it has not been executed remotely in this workspace.
+
+## Validation
+
+```sh
+npm run build
+npm run test:backend
+npm run test:interop
+cd src-tauri
+cargo fmt --check
+cargo clippy --all-targets -- -D warnings
+```
+
+The backend tests create temporary vaults and a loopback-only SSH server. They exercise encrypted credentials, wrong-password rejection, create-without-overwrite, backups, external-file conflicts, connection recovery from KDBX, host trust, SSH authentication, terminal data, resizing, and disconnect. They do not connect to your servers.
+
+`test:interop` uses a separate JavaScript KDBX implementation (`kdbxweb` with `hash-wasm`) to read a Rust-created file, validate test credentials, edit it with history/custom fields, and save it for Rust to reopen. These libraries are development-only and are not included in the desktop application.
+
+An optional KeePassXC CLI interoperability test is also included. Set `KEEPASSXC_CLI` to its executable path, then run:
+
+```sh
+cargo test --manifest-path src-tauri/Cargo.toml keepassxc_interoperability -- --ignored --nocapture
+```
+
+Validation of the initial Windows build: frontend production build, Rust formatting and Clippy, the core backend tests, including real local and remote TCP forwarding traffic and lifecycle checks, and the independent KDBX interoperability test passed. The native Windows app launched and exposed its expected interface; the workspace and vault form were visually checked in the browser preview. The installed KeePassXC CLI did not complete, so that optional test was not run successfully. macOS and Linux builds have not been tested here. The full native click-through against a user-owned SSH server remains to be tried.
+
+## Storage and architecture
+
+```text
+React UI / xterm.js
+       │ local Tauri IPC
+       ▼
+Rust commands ── russh ── SSH server
+       │
+       ├─ KDBX: encrypted credentials and portable connection fields
+       └─ SQLite: connection index, last vault path, trusted host fingerprints, encrypted local Hello factor records
+```
+
+The SQLite file is `harbor.db` in Tauri's platform app-data directory for `dev.harbor.ssh`. You choose the vault's location. Each connection is a KDBX entry; its UUID links the local index to the vault. `Harbor.Type`, `Harbor.Host`, `Harbor.Port`, `Harbor.Folder`, and `Harbor.Forwards`, and `Harbor.AuthMethod` identify portable connection records. Arbitrary existing KeePass entries are not automatically imported as SSH profiles.
+
+New vaults use KDBX 4.1, AES-256 outer encryption, and Argon2id with 64 MiB memory, 3 iterations, and parallelism 2. Credentials are passed to the Rust SSH client; saved passwords are never returned to the interface. Rust password buffers use zeroizing wrappers, although this does not guarantee that every transient copy in the UI, libraries, or operating system is erased.
+
+Writes use a temporary file in the vault directory, synchronization, read-back verification, and atomic file replacement. The prior version is copied to `<name>.kdbx.bak`. When enabling a second factor, both the live vault and Harbor’s backup are written with the new composite key; an unprotected-by-the-second-factor backup is not left behind. A file digest detects external changes before saving. This is single-device conflict protection, not multi-device cloud synchronization or a multi-process file-locking protocol. Avoid simultaneous editing.
+
+Known server keys are pinned per hostname and port. This version blocks changed keys; there is no in-app reset button yet. Private keys, master passwords, terminal output, and cloud tokens are not logged. There are no analytics or hosted application services.
+
+Future cloud sync can transport the encrypted vault directly through OneDrive or Google Drive APIs, with revision checks and explicit conflict handling.
+
+Version 0.3.0 validation adds encrypted-key and OpenSSH-certificate SSH logins against a loopback server, rejection of untrusted CAs, key/certificate matching and validity checks, Hello envelope tamper checks, two-factor vault and backup enforcement, recovery on a fresh local database, and independent KDBX password-plus-key-file interoperability. Native Hello prompts remain a manual test.
+
+Version 0.4.0 validation covers legacy SQLite upgrades, group/tag portability, native KDBX tag reads and edits with the independent kdbxweb library, and tag validation. Browser UI checks cover combined filters, tag search, and editing a host's group and tags.
