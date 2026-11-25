@@ -19,6 +19,7 @@ export type Profile = {
   host: string;
   port: number;
   folder: string;
+  startupSnippet: string | null;
   tags: string[];
   forwards: ForwardRule[];
   authMethod: "password" | "privateKey" | "certificate";
@@ -61,3 +62,11 @@ export type Session = {
 };
 export const errorText = (e: unknown) =>
   e instanceof Error ? e.message : String(e);
+
+export type Snippet = {
+  id: string;
+  name: string;
+  group: string;
+  tags: string[];
+  body: string;
+};

@@ -72,6 +72,22 @@ assert.equal(entry.fields.get("Password").getText(), "test-ssh-secret");
 assert.equal(entry.fields.get("Harbor.Host"), "127.0.0.1");
 assert.equal(entry.fields.get("Harbor.Folder"), "Lab");
 assert.deepEqual([...entry.tags].sort(), ["linux", "production"]);
+const snippet = db
+  .getDefaultGroup()
+  .entries.find((e) => e.fields.get("Title") === "Portable snippet");
+if (snippet) {
+  assert.equal(snippet.fields.get("Harbor.Type"), "snippet");
+  assert.equal(
+    snippet.fields.get("Harbor.SnippetBody").getText(),
+    "printf interop-snippet",
+  );
+  snippet.pushHistory();
+  snippet.fields.set(
+    "Harbor.SnippetBody",
+    kdbxweb.ProtectedValue.fromString("printf updated-by-kdbxweb"),
+  );
+  snippet.times.update();
+}
 entry.pushHistory();
 entry.tags = ["external-tag"];
 entry.fields.set("Harbor.Folder", "External group");

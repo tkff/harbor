@@ -398,6 +398,7 @@ mod tests {
                     host: "127.0.0.1".into(),
                     port,
                     folder: "Tests".into(),
+                    startup_snippet: None,
                     tags: vec![],
                     username: "tester".into(),
                     password: None,
@@ -457,6 +458,7 @@ mod tests {
                     host: profile.host.clone(),
                     port,
                     folder: "Tests".into(),
+                    startup_snippet: None,
                     tags: vec![],
                     username: "tester".into(),
                     password: None,
@@ -533,12 +535,22 @@ mod tests {
                 zeroize::Zeroizing::new("test-master-password".into()),
                 true,
             )?;
+            let startup = storage
+                .save_snippet(crate::storage::SaveSnippet {
+                    id: None,
+                    name: "Startup test".into(),
+                    group: "Tests".into(),
+                    tags: vec![],
+                    body: "echo startup-once".into(),
+                })?
+                .remove(0);
             let state = storage.save_profile(SaveProfile {
                 id: None,
                 name: "Loopback".into(),
                 host: "127.0.0.1".into(),
                 port,
                 folder: "Tests".into(),
+                startup_snippet: Some(startup.id),
                 tags: vec![],
                 username: "tester".into(),
                 password: Some("ssh-test-password".into()),
@@ -581,6 +593,20 @@ mod tests {
                     }
                 }
             }
+            assert_eq!(
+                String::from_utf8_lossy(&output)
+                    .matches("echo startup-once\r")
+                    .count(),
+                1
+            );
+            assert!(
+                String::from_utf8_lossy(&output)
+                    .find("echo startup-once")
+                    .unwrap()
+                    < String::from_utf8_lossy(&output)
+                        .find("hello terminal")
+                        .unwrap()
+            );
             for _ in 0..20 {
                 if sizes.lock().unwrap().contains(&(120, 40)) {
                     break;
@@ -649,7 +675,7 @@ mod tests {
             let server_task=tokio::spawn(async move {server.run_on_socket(config,&socket).await});
             let dir=tempfile::tempdir()?;let mut storage=Storage::open(&dir.path().join("local.db"))?;
             storage.unlock(&dir.path().join("tunnels.kdbx"),zeroize::Zeroizing::new("test-master-password".into()),true)?;
-            let profile=storage.save_profile(SaveProfile {id:None,name:"Forwarding test".into(),host:"127.0.0.1".into(),port,folder:"Tests".into(), tags: vec![],username:"tester".into(),password:Some("ssh-test-password".into()),forwards:rules.clone(),authentication:None})?.profiles.remove(0);
+            let profile=storage.save_profile(SaveProfile {id:None,name:"Forwarding test".into(),host:"127.0.0.1".into(),port,folder:"Tests".into(), startup_snippet: None, tags: vec![],username:"tester".into(),password:Some("ssh-test-password".into()),forwards:rules.clone(),authentication:None})?.profiles.remove(0);
             storage.trust_key("127.0.0.1",port,&fingerprint)?;
             let store=Arc::new(Mutex::new(storage));let manager=Manager::default();let(events,mut rx)=channel();
             drop(local_reservation);drop(remote_reservation);
@@ -862,9 +888,14 @@ impl Manager {
         let manager = self.clone();
         let (ready_tx, ready_rx) = oneshot::channel();
         tauri::async_runtime::spawn(async move {
-            let credentials = store.lock().unwrap().ssh_credentials(&profile_id);
+            let credentials = (|| {
+                let storage = store.lock().unwrap();
+                let (profile, user, material) = storage.ssh_credentials(&profile_id)?;
+                let startup = storage.startup_command(&profile)?;
+                Ok::<_, anyhow::Error>((profile, user, material, startup))
+            })();
             let init = async {
-                let (profile, username, material) = credentials?;
+                let (profile, username, material, startup) = credentials?;
                 let verify = Verify {
                     id: id.clone(),
                     host: profile.host.clone(),
@@ -967,6 +998,12 @@ impl Manager {
                         }
                         _ => {}
                     }
+                }
+                if let Some(command) = startup {
+                    channel
+                        .data(command.as_bytes())
+                        .await
+                        .context("Could not send startup snippet")?;
                 }
                 Ok::<_, anyhow::Error>((handle, channel, profile.forwards))
             };

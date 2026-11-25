@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState, type FormEvent } from "react";
 import { open, save } from "@tauri-apps/plugin-dialog";
 import {
   Anchor,
+  Code2,
   ArrowDownLeft,
   ArrowRight,
   Check,
@@ -31,6 +32,7 @@ import {
   type Session,
   type VaultStatus,
   type HelloStatus,
+  type Snippet,
 } from "./api";
 import TerminalPane from "./TerminalPane";
 import ForwardingEditor from "./ForwardingEditor";
@@ -39,6 +41,7 @@ import AuthenticationFields, {
   authenticationUpdate,
 } from "./AuthenticationFields";
 import VaultSecurity from "./VaultSecurity";
+import Snippets from "./Snippets";
 
 const empty: VaultStatus = {
   unlocked: false,
@@ -64,6 +67,7 @@ export default function App() {
   const [busy, setBusy] = useState(false);
   const [help, setHelp] = useState(false);
   const [vaultSecurity, setVaultSecurity] = useState(false);
+  const [showSnippets, setShowSnippets] = useState(false);
   const native = isTauri();
 
   useEffect(() => {
@@ -113,6 +117,7 @@ export default function App() {
       setActiveId(null);
       setEditor(null);
       setVaultSecurity(false);
+      setShowSnippets(false);
       setStatus((prev) => ({ ...prev, unlocked: false, profiles: [] }));
     } catch (e) {
       setError(errorText(e));
@@ -177,6 +182,14 @@ export default function App() {
           <ShieldCheck size={17} />
           <span>Credential vault</span>
           <span className={`tiny-dot ${status.unlocked ? "green" : ""}`} />
+        </button>
+        <button
+          className="nav-item"
+          disabled={!status.unlocked}
+          onClick={() => setShowSnippets(true)}
+        >
+          <Code2 size={17} />
+          <span>Snippets</span>
         </button>
         <div className="host-organization">
           <div className="section-label">
@@ -640,7 +653,7 @@ export default function App() {
           <span>
             <Laptop size={12} />
             On this device<span className="status-separator">|</span>Harbor
-            v0.4.0
+            v0.5.0
           </span>
         </footer>
       </div>
@@ -656,6 +669,9 @@ export default function App() {
             setError("");
           }}
         />
+      )}
+      {showSnippets && status.unlocked && (
+        <Snippets onClose={() => setShowSnippets(false)} />
       )}
       {vaultSecurity && status.unlocked && (
         <VaultSecurity
@@ -728,7 +744,7 @@ export default function App() {
             <div className="modal-icon">
               <Anchor size={26} />
             </div>
-            <div className="eyebrow">HARBOR · VERSION 0.4.0</div>
+            <div className="eyebrow">HARBOR · VERSION 0.5.0</div>
             <h2 id="about-title">A workspace you own.</h2>
             <p>
               Harbor stores credentials in a password-protected KeePass KDBX
@@ -1054,6 +1070,24 @@ function ConnectionModal({
   const [folder, setFolder] = useState(profile?.folder ?? "General");
   const [tagsText, setTagsText] = useState(profile?.tags.join(", ") ?? "");
   const [forwards, setForwards] = useState(profile?.forwards ?? []);
+  const [startupSnippet, setStartupSnippet] = useState(
+    profile?.startupSnippet ?? "",
+  );
+  const [snippets, setSnippets] = useState<Snippet[]>([]);
+  const [snippetError, setSnippetError] = useState("");
+  useEffect(() => {
+    let alive = true;
+    void invoke<Snippet[]>("list_snippets")
+      .then((items) => {
+        if (alive) setSnippets(items);
+      })
+      .catch((e) => {
+        if (alive) setSnippetError(errorText(e));
+      });
+    return () => {
+      alive = false;
+    };
+  }, []);
   const [authentication, setAuthentication] = useState(() =>
     newAuthDraft(profile),
   );
@@ -1094,6 +1128,7 @@ function ConnectionModal({
               : null,
           authentication: authenticationUpdate(authentication),
           forwards,
+          startupSnippet: startupSnippet || null,
         },
       });
       setPassword("");
@@ -1238,6 +1273,39 @@ function ConnectionModal({
                 />
               </>
             )}
+          <label htmlFor="host-startup-snippet">Startup snippet</label>
+          <select
+            id="host-startup-snippet"
+            value={startupSnippet}
+            onChange={(e) => setStartupSnippet(e.target.value)}
+          >
+            <option value="">None</option>
+            {startupSnippet &&
+              !snippets.some((s) => s.id === startupSnippet) && (
+                <option value={startupSnippet}>
+                  Unavailable snippet � choose another or None
+                </option>
+              )}
+            {snippets.map((s) => (
+              <option key={s.id} value={s.id}>
+                {s.group} / {s.name}
+              </option>
+            ))}
+          </select>
+          <p className="field-hint">
+            Runs automatically once after authentication and shell startup, on
+            every new connection. Manage commands in Snippets.
+          </p>
+          {snippetError && (
+            <p className="form-error" role="alert">
+              {snippetError}
+            </p>
+          )}
+          {snippets.find((s) => s.id === startupSnippet) && (
+            <pre className="startup-preview">
+              {snippets.find((s) => s.id === startupSnippet)?.body}
+            </pre>
+          )}
           <ForwardingEditor rules={forwards} onChange={setForwards} />
         </fieldset>
         {error && (

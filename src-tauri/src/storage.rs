@@ -27,6 +27,8 @@ pub struct Profile {
     pub port: u16,
     pub folder: String,
     #[serde(default)]
+    pub startup_snippet: Option<String>,
+    #[serde(default)]
     pub tags: Vec<String>,
     #[serde(default)]
     pub forwards: Vec<Rule>,
@@ -45,12 +47,87 @@ mod tests {
             host: "127.0.0.1".into(),
             port: 2222,
             folder: "Lab".into(),
+            startup_snippet: None,
             tags: vec!["production".into(), "linux".into()],
             username: "harbor-test-user".into(),
             password: Some("test-ssh-secret".into()),
             forwards: vec![],
             authentication: None,
         }
+    }
+
+    #[test]
+    fn snippets_encrypted_portable_and_startup_references() -> Result<()> {
+        let dir = tempfile::tempdir()?;
+        let path = dir.path().join("snippets.kdbx");
+        let mut store = Storage::open(&dir.path().join("local.db"))?;
+        assert!(store.snippets().is_err());
+        store.unlock(&path, Zeroizing::new("test-master-password".into()), true)?;
+        let make = |id: Option<String>, body: &str| SaveSnippet {
+            id,
+            name: "Server check".into(),
+            group: "Maintenance".into(),
+            tags: vec![" Linux ".into(), "linux".into()],
+            body: body.into(),
+        };
+        let body = "echo harbor-snippet-private-marker\r\ndf -h\r\n";
+        let saved = store.save_snippet(make(None, body))?;
+        let id = saved[0].id.clone();
+        assert_eq!(saved[0].tags, vec!["linux"]);
+        assert_eq!(saved[0].body, body.replace("\r\n", "\n"));
+        let mut host = profile();
+        host.startup_snippet = Some(id.clone());
+        let state = store.save_profile(host)?;
+        let host_id = state.profiles[0].id.clone();
+        assert_eq!(
+            store.startup_command(&state.profiles[0])?.unwrap().as_str(),
+            "echo harbor-snippet-private-marker\ndf -h\r"
+        );
+        assert!(store
+            .delete_snippet(&id)
+            .unwrap_err()
+            .to_string()
+            .contains("used at startup"));
+        assert!(store
+            .save_snippet(make(Some(id.clone()), "\u{1b}[2J"))
+            .is_err());
+        assert!(store
+            .save_snippet(make(Some(host_id.clone()), "echo must not overwrite host"))
+            .is_err());
+        for file in [&path, &dir.path().join("local.db")] {
+            let bytes = fs::read(file)?;
+            assert!(!bytes
+                .windows(b"harbor-snippet-private-marker".len())
+                .any(|b| b == b"harbor-snippet-private-marker"));
+        }
+        store.lock();
+        assert!(store.snippet(&id).is_err());
+        let mut fresh = Storage::open(&dir.path().join("fresh.db"))?;
+        let state = fresh.unlock(&path, Zeroizing::new("test-master-password".into()), false)?;
+        assert_eq!(state.profiles.len(), 1);
+        assert_eq!(
+            state.profiles[0].startup_snippet.as_deref(),
+            Some(id.as_str())
+        );
+        assert_eq!(fresh.snippet(&id)?.group, "Maintenance");
+        fresh.save_snippet(make(Some(id.clone()), "echo updated"))?;
+        assert_eq!(
+            fresh
+                .startup_command(&fresh.status()?.profiles[0])?
+                .unwrap()
+                .as_str(),
+            "echo updated\r"
+        );
+        let mut host = profile();
+        host.id = Some(state.profiles[0].id.clone());
+        host.password = None;
+        fresh.save_profile(host)?;
+        assert!(fresh.delete_snippet(&id)?.is_empty());
+        assert_eq!(fresh.status()?.profiles.len(), 1);
+        let mut invalid = profile();
+        invalid.startup_snippet = Some(id);
+        assert!(fresh.save_profile(invalid).is_err());
+        Ok(())
     }
 
     #[test]
@@ -317,6 +394,13 @@ mod tests {
         let mut store = Storage::open(&dir.path().join("local.db"))?;
         store.unlock(&path, Zeroizing::new("test-master-password".into()), true)?;
         store.save_profile(profile())?;
+        store.save_snippet(SaveSnippet {
+            id: None,
+            name: "Portable snippet".into(),
+            group: "Checks".into(),
+            tags: vec!["linux".into()],
+            body: "printf interop-snippet".into(),
+        })?;
         let script = Path::new(env!("CARGO_MANIFEST_DIR")).join("../scripts/check-kdbx.mjs");
         let output = Command::new("node").arg(script).arg(&path).output()?;
         if !output.status.success() {
@@ -328,6 +412,7 @@ mod tests {
         store.lock();
         let state = store.unlock(&path, Zeroizing::new("test-master-password".into()), false)?;
         let id = state.profiles[0].id.clone();
+        assert_eq!(store.snippets()?[0].body, "printf updated-by-kdbxweb");
         assert_eq!(store.username(&id)?, "updated-by-kdbxweb");
         assert_eq!(state.profiles[0].tags, vec!["external-tag"]);
         assert_eq!(state.profiles[0].folder, "External group");
@@ -396,6 +481,8 @@ pub struct SaveProfile {
     pub host: String,
     pub port: u16,
     pub folder: String,
+    #[serde(default)]
+    pub startup_snippet: Option<String>,
     #[serde(default)]
     pub tags: Vec<String>,
     pub username: String,
@@ -546,6 +633,7 @@ impl Storage {
                     host: r.get(2)?,
                     port: r.get(3)?,
                     folder: r.get(4)?,
+                    startup_snippet: None,
                     tags: serde_json::from_str(&r.get::<_, String>(6)?).map_err(|e| {
                         rusqlite::Error::FromSqlConversionFailure(
                             6,
@@ -568,6 +656,10 @@ impl Storage {
             for profile in &mut profiles {
                 let entry_id = self.entry_id(&profile.id)?;
                 let entry = v.db.entry(entry_id).context("Credential entry missing")?;
+                profile.startup_snippet = entry
+                    .get("Harbor.StartupSnippet")
+                    .filter(|id| !id.is_empty())
+                    .map(str::to_owned);
                 profile.auth_method = auth::Method::from_entry(&entry)?;
                 profile.identity = auth::identity(&entry)?;
             }
@@ -743,6 +835,9 @@ impl Storage {
         if host.chars().any(|c| c.is_whitespace() || c.is_control()) || host.contains('/') {
             bail!("Enter a hostname or IP address without a protocol or path");
         }
+        if let Some(id) = &p.startup_snippet {
+            self.snippet(id)?;
+        }
         let existing = p.id.as_deref().map(|id| self.entry_id(id)).transpose()?;
         let vault = self.vault.as_mut().context("Unlock your vault first")?;
         let mut candidate = vault.db.clone();
@@ -771,6 +866,10 @@ impl Storage {
             entry.set_unprotected(fields::URL, format!("ssh://{}:{}", host, p.port));
             entry.tags = tags;
             entry.set_unprotected("Harbor.Type", "ssh");
+            entry.set_unprotected(
+                "Harbor.StartupSnippet",
+                p.startup_snippet.as_deref().unwrap_or(""),
+            );
             entry.set_unprotected("Harbor.Host", host);
             entry.set_unprotected("Harbor.Port", p.port.to_string());
             entry.set_unprotected("Harbor.Forwards", forwards_json.clone());
@@ -1027,4 +1126,152 @@ fn normalize_tags(input: &[String]) -> Result<Vec<String>> {
     }
     tags.sort();
     Ok(tags)
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Snippet {
+    pub id: String,
+    pub name: String,
+    pub group: String,
+    pub tags: Vec<String>,
+    pub body: String,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SaveSnippet {
+    pub id: Option<String>,
+    pub name: String,
+    pub group: String,
+    #[serde(default)]
+    pub tags: Vec<String>,
+    pub body: String,
+}
+
+impl Storage {
+    pub fn snippets(&self) -> Result<Vec<Snippet>> {
+        let vault = self.vault.as_ref().context("Unlock your vault first")?;
+        fn visit(group: keepass::db::GroupRef<'_>, snippets: &mut Vec<Snippet>) {
+            for entry in group.entries() {
+                if entry.get("Harbor.Type") == Some("snippet") {
+                    snippets.push(Snippet {
+                        id: entry.id().uuid().to_string(),
+                        name: entry.get_title().unwrap_or("Untitled").into(),
+                        group: entry.get("Harbor.SnippetGroup").unwrap_or("General").into(),
+                        tags: entry.tags.clone(),
+                        body: entry.get("Harbor.SnippetBody").unwrap_or("").into(),
+                    });
+                }
+            }
+            for child in group.groups() {
+                visit(child, snippets);
+            }
+        }
+        let mut snippets = Vec::new();
+        visit(vault.db.root(), &mut snippets);
+        snippets.sort_by(|a, b| (&a.group, &a.name, &a.id).cmp(&(&b.group, &b.name, &b.id)));
+        Ok(snippets)
+    }
+
+    pub fn snippet(&self, id: &str) -> Result<Snippet> {
+        self.snippets()?
+            .into_iter()
+            .find(|s| s.id == id)
+            .context("Saved snippet no longer exists; update the host's startup snippet")
+    }
+
+    pub fn startup_command(&self, profile: &Profile) -> Result<Option<Zeroizing<String>>> {
+        profile
+            .startup_snippet
+            .as_deref()
+            .map(|id| {
+                let snippet = self.snippet(id)?;
+                validate_snippet_body(&snippet.body)?;
+                Ok(Zeroizing::new(format!(
+                    "{}\r",
+                    snippet
+                        .body
+                        .replace("\r\n", "\n")
+                        .trim_end_matches(['\n', '\r'])
+                )))
+            })
+            .transpose()
+    }
+
+    pub fn save_snippet(&mut self, input: SaveSnippet) -> Result<Vec<Snippet>> {
+        let name = input.name.trim();
+        let group = input.group.trim();
+        anyhow::ensure!(
+            !name.is_empty() && name.chars().count() <= 120,
+            "Snippet name is required and must be at most 120 characters"
+        );
+        anyhow::ensure!(
+            group.chars().count() <= 80,
+            "Snippet group must be at most 80 characters"
+        );
+        validate_snippet_body(&input.body)?;
+        let tags = normalize_tags(&input.tags)?;
+        let existing = input
+            .id
+            .as_deref()
+            .map(|id| {
+                self.snippet(id)?;
+                Ok::<_, anyhow::Error>(EntryId::from_uuid(Uuid::parse_str(id)?))
+            })
+            .transpose()?;
+        let vault = self.vault.as_mut().context("Unlock your vault first")?;
+        let mut candidate = vault.db.clone();
+        let id = existing.unwrap_or_else(|| candidate.root_mut().add_entry().id());
+        {
+            let mut raw = candidate.entry_mut(id).context("Snippet missing")?;
+            let mut entry = raw.track_changes();
+            entry.times.last_modification = Some(keepass::db::Times::now());
+            entry.set_unprotected(fields::TITLE, name);
+            entry.set_unprotected("Harbor.Type", "snippet");
+            entry.set_unprotected(
+                "Harbor.SnippetGroup",
+                if group.is_empty() { "General" } else { group },
+            );
+            entry.set_protected("Harbor.SnippetBody", input.body.replace("\r\n", "\n"));
+            entry.tags = tags;
+        }
+        vault.write(candidate, false)?;
+        self.snippets()
+    }
+
+    pub fn delete_snippet(&mut self, id: &str) -> Result<Vec<Snippet>> {
+        self.snippet(id)?;
+        if let Some(host) = self
+            .status()?
+            .profiles
+            .iter()
+            .find(|p| p.startup_snippet.as_deref() == Some(id))
+        {
+            bail!("This snippet is used at startup by '{}'. Remove it from that host before deleting it.", host.name);
+        }
+        let vault = self.vault.as_mut().context("Unlock your vault first")?;
+        let mut candidate = vault.db.clone();
+        candidate
+            .entry_mut(EntryId::from_uuid(Uuid::parse_str(id)?))
+            .context("Snippet missing")?
+            .track_changes()
+            .remove();
+        vault.write(candidate, false)?;
+        self.snippets()
+    }
+}
+
+fn validate_snippet_body(body: &str) -> Result<()> {
+    anyhow::ensure!(
+        !body.trim().is_empty() && body.len() <= 65536,
+        "Snippet commands are required and must be at most 64 KiB"
+    );
+    anyhow::ensure!(
+        !body
+            .chars()
+            .any(|c| c.is_control() && c != '\n' && c != '\r' && c != '\t'),
+        "Snippet commands cannot contain terminal control characters"
+    );
+    Ok(())
 }

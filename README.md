@@ -2,7 +2,7 @@
 
 A local-first desktop SSH workspace built with Tauri 2, React, TypeScript, Rust, russh, and xterm.js. Open source under MIT. Harbor is a working name.
 
-## Version 0.4.0 alpha
+## Version 0.5.0 alpha
 
 - Create or unlock a password-protected KeePass KDBX vault.
 - Add, edit, search, organize, and delete saved SSH connections.
@@ -31,6 +31,16 @@ On Windows, open the provided `Harbor.exe`. It uses the Microsoft Edge WebView2 
 Use a dedicated Harbor vault while this alpha is being evaluated. The Rust `keepass` library labels KDBX writing experimental. Every save is re-opened for verification before replacement, but comprehensive compatibility testing across all KeePass extensions and database configurations is still needed. KDBX 4 vaults using a password, or password plus key file, are supported. Existing unrelated vault entries are preserved and are not shown as connections.
 
 Connection names, host addresses, ports, groups, tags, and forwarding rules are stored unencrypted in the local SQLite index. Usernames, passwords, imported private keys, their passphrases, and user certificates are stored inside KDBX. Terminal scrollback is held in memory while a tab is open. This version has manual locking; it does not automatically lock on idle or operating-system sleep.
+
+## Command snippets and host startup
+
+Open **Snippets** in the sidebar after unlocking the vault. Create, edit, search, and delete reusable commands with a name, group, and tags. Snippets support multiple lines and up to 64 KiB of commands. Command bodies are protected fields in native KDBX entries (`Harbor.Type=snippet`), never stored in the local SQLite index. Snippets travel with the vault and are hidden when it is locked.
+
+From a connected terminal, choose **Snippets**, select a command, review or edit the commands for this run, and choose **Run in this session**. This sends the commands and Enter to that terminal through its existing input queue. Commands run in the current shell/application context; Harbor does not create a separate shell or track command exit status. Saving a snippet does not execute it. Edits made in the run preview do not modify the saved snippet.
+
+In **New connection** or **Edit connection**, set **Startup snippet** to a saved snippet, or **None** to disable it. The editor previews the selected commands. Each new connection sends that snippet once after server identity approval, authentication, and successful PTY/shell requests, before accepting keyboard input. Reconnects run it again. Startup uses the snippet's saved contents at connection time; changing a snippet affects all hosts using it on their next connection. This does not wait for a shell prompt or for command completion, so startup snippets should use commands that work immediately in the remote interactive shell. Startup snippets are independent of forwarding startup and should not assume tunnels are ready.
+
+References use the snippet's KDBX UUID, so they remain valid when moving the vault to another computer. Remove a snippet from every host's Startup snippet setting before deleting it. Missing or invalid startup snippets block the connection with an error; they are never silently skipped.
 
 ## Groups and tags
 
@@ -144,3 +154,5 @@ Future cloud sync can transport the encrypted vault directly through OneDrive or
 Version 0.3.0 validation adds encrypted-key and OpenSSH-certificate SSH logins against a loopback server, rejection of untrusted CAs, key/certificate matching and validity checks, Hello envelope tamper checks, two-factor vault and backup enforcement, recovery on a fresh local database, and independent KDBX password-plus-key-file interoperability. Native Hello prompts remain a manual test.
 
 Version 0.4.0 validation covers legacy SQLite upgrades, group/tag portability, native KDBX tag reads and edits with the independent kdbxweb library, and tag validation. Browser UI checks cover combined filters, tag search, and editing a host's group and tags.
+
+Version 0.5.0 validation covers encrypted snippet CRUD, portable startup references, deletion protection, control-character rejection, and startup delivery exactly once before user input against a loopback SSH server.

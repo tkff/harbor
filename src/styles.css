@@ -1596,3 +1596,118 @@ fieldset {
   scrollbar-width: thin;
   scrollbar-color: #40545b transparent;
 }
+
+.snippets-modal {
+  width: min(800px, 94vw);
+}
+.snippet-controls {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin: 18px 0;
+}
+.snippet-controls input {
+  flex: 1;
+  min-width: 100px;
+  margin: 0;
+}
+.snippet-controls select {
+  max-width: 180px;
+}
+.snippet-controls button {
+  white-space: nowrap;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.snippet-list {
+  max-height: 230px;
+  overflow: auto;
+  border-top: 1px solid #dce4e0;
+}
+.snippet-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 4px;
+  border-bottom: 1px solid #dce4e0;
+}
+.snippet-row.selected {
+  background: #edf4ef;
+}
+.snippet-pick {
+  flex: 1;
+  min-width: 0;
+  text-align: left;
+  border: 0;
+  background: transparent;
+  padding: 5px;
+  cursor: pointer;
+  color: #294c43;
+}
+.snippet-pick strong,
+.snippet-pick span {
+  display: block;
+  overflow-wrap: anywhere;
+}
+.snippet-pick span {
+  font-size: 12px;
+  color: #657870;
+  margin-top: 5px;
+}
+.snippets-modal textarea {
+  width: 100%;
+  resize: vertical;
+  min-height: 100px;
+  background: #122229;
+  color: #dceae4;
+  border: 1px solid #3a5753;
+  border-radius: 6px;
+  padding: 12px;
+  font:
+    13px/1.5 Consolas,
+    monospace;
+}
+.snippet-preview {
+  margin-top: 20px;
+}
+.snippet-delete {
+  padding: 10px;
+  background: #fff1e5;
+  border-radius: 6px;
+}
+.snippet-delete button + button {
+  margin-left: 8px;
+}
+.startup-preview {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  max-height: 160px;
+  overflow: auto;
+  padding: 12px;
+  background: #142229;
+  color: #dceae4;
+  border-radius: 6px;
+  font-size: 12px;
+}
+@media (max-width: 700px) {
+  .snippet-controls {
+    flex-wrap: wrap;
+  }
+}
+
+.snippet-pick {
+  display: block;
+}
+.snippets-modal select,
+#host-startup-snippet {
+  border: 1px solid #dce4e0;
+  border-radius: 6px;
+  padding: 10px;
+  background: #fff;
+  color: #294c43;
+  font: inherit;
+}
+#host-startup-snippet {
+  width: 100%;
+}

@@ -1,9 +1,10 @@
+import Snippets from "./Snippets";
 import ForwardingPanel from "./ForwardingPanel";
 import { useEffect, useRef, useState } from "react";
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import "@xterm/xterm/css/xterm.css";
-import { ShieldCheck, Unplug, Network } from "lucide-react";
+import { ShieldCheck, Unplug, Network, Code2 } from "lucide-react";
 import { Channel, invoke, errorText, type Session, type SshEvent } from "./api";
 import type { ForwardStatus } from "./api";
 
@@ -23,6 +24,7 @@ export default function TerminalPane({
   const [hostKey, setHostKey] = useState<HostKey | null>(null);
   const [message, setMessage] = useState("Establishing a secure connection…");
   const [showForwards, setShowForwards] = useState(false);
+  const [showSnippets, setShowSnippets] = useState(false);
   const [forwardStates, setForwardStates] = useState<
     Record<string, ForwardStatus>
   >({});
@@ -212,7 +214,28 @@ export default function TerminalPane({
             {activeForwards}/{rules.length}
           </span>
         </button>
+        <button
+          className="forward-toggle"
+          disabled={session.state !== "connected"}
+          onClick={() => setShowSnippets(true)}
+        >
+          <Code2 size={13} /> Snippets
+        </button>
       </div>
+      {showSnippets && session.state === "connected" && active && (
+        <Snippets
+          sessionName={session.profile.name}
+          onClose={() => setShowSnippets(false)}
+          onRun={(body) => {
+            if (session.state !== "connected" || !terminal.current) return;
+            terminal.current.paste(
+              body.replace(/\r\n/g, "\n").replace(/[\r\n]+$/, ""),
+            );
+            terminal.current.input("\r", true);
+            terminal.current.focus();
+          }}
+        />
+      )}
       <div className="terminal-content">
         <div className="terminal-mount" ref={mount} />
         {showForwards && (

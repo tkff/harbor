@@ -84,6 +84,37 @@ async fn save_connection(
 }
 
 #[tauri::command]
+fn list_snippets(state: State<AppState>) -> Result<Vec<storage::Snippet>, String> {
+    state.store.lock().unwrap().snippets().map_err(message)
+}
+
+#[tauri::command]
+async fn save_snippet(
+    state: State<'_, AppState>,
+    snippet: storage::SaveSnippet,
+) -> Result<Vec<storage::Snippet>, String> {
+    let store = state.store.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        store.lock().unwrap().save_snippet(snippet).map_err(message)
+    })
+    .await
+    .map_err(message)?
+}
+
+#[tauri::command]
+async fn delete_snippet(
+    state: State<'_, AppState>,
+    id: String,
+) -> Result<Vec<storage::Snippet>, String> {
+    let store = state.store.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        store.lock().unwrap().delete_snippet(&id).map_err(message)
+    })
+    .await
+    .map_err(message)?
+}
+
+#[tauri::command]
 async fn hello_status(
     state: State<'_, AppState>,
     path: Option<String>,
@@ -315,6 +346,9 @@ pub fn run() {
             unlock_vault,
             lock_vault,
             save_connection,
+            list_snippets,
+            save_snippet,
+            delete_snippet,
             delete_connection,
             connection_username,
             ssh_connect,
