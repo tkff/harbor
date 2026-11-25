@@ -1122,7 +1122,7 @@ fieldset {
 .terminal-mount {
   flex: 1;
   min-height: 0;
-  padding: 20px 14px 12px 22px;
+  padding: 0;
   overflow: hidden;
 }
 .terminal-mount .xterm {
@@ -1319,6 +1319,8 @@ fieldset {
   margin-top: 3px;
 }
 .terminal-content {
+  padding: 20px 14px 12px 22px;
+  overflow: hidden;
   display: flex;
   flex: 1;
   min-height: 0;

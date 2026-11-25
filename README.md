@@ -2,7 +2,7 @@
 
 A local-first desktop SSH workspace built with Tauri 2, React, TypeScript, Rust, russh, and xterm.js. Open source under MIT. Harbor is a working name.
 
-## Version 0.7.0 alpha
+## Version 0.7.1 alpha
 
 - Create or unlock a password-protected KeePass KDBX vault.
 - Add, edit, search, organize, and delete saved SSH connections.
@@ -190,3 +190,7 @@ Version 0.6.0 validation covers encrypted log roundtrips, corruption and truncat
 Login retry validation uses a loopback SSH server to reject saved credentials, request corrected credentials, connect successfully with temporary overrides, preserve the original saved credentials, and verify that failed authentication creates no session log.
 
 Version 0.7.0 validation checks preference defaults, partial-file migration, atomic persistence, validation failures preserving the saved file, corrupt-file recovery, and UI theme independence and live terminal changes.
+
+Version 0.7.1 fixes initial terminal fitting so padding cannot hide the last row, schedules a redraw and remote size update after connection/layout/font changes, and records future FIDO2 SSH support in [TODO.md](TODO.md).
+
+Terminal fitting regression checks verified the bottom row before keyboard input, with large fonts/line height, with the forwarding panel open, and with encrypted logging's recording banner visible.

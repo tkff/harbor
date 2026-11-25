@@ -36,7 +36,9 @@ export default function TerminalPane({
 }) {
   const mount = useRef<HTMLDivElement>(null);
   const terminal = useRef<Terminal | null>(null);
-  const fit = useRef<FitAddon | null>(null);
+  const scheduleFit = useRef<(sync?: boolean, revealBottom?: boolean) => void>(
+    () => {},
+  );
   const [hostKey, setHostKey] = useState<HostKey | null>(null);
   const [authFailure, setAuthFailure] = useState<Extract<
     SshEvent,
@@ -68,9 +70,39 @@ export default function TerminalPane({
     const fitter = new FitAddon();
     term.loadAddon(fitter);
     terminal.current = term;
-    fit.current = fitter;
     term.open(mount.current!);
+    let fitFrame = 0;
+    let syncSize = false;
+    let revealBottom = false;
+    const queueFit = (sync = false, bottom = false) => {
+      syncSize ||= sync;
+      revealBottom ||= bottom;
+      cancelAnimationFrame(fitFrame);
+      fitFrame = requestAnimationFrame(() => {
+        if (
+          !alive ||
+          !mount.current?.clientWidth ||
+          !mount.current?.clientHeight
+        )
+          return;
+        fitter.fit();
+        term.refresh(0, term.rows - 1);
+        if (revealBottom) term.scrollToBottom();
+        if (syncSize && connected)
+          void invoke("ssh_resize", {
+            sessionId: session.id,
+            cols: term.cols,
+            rows: term.rows,
+          }).catch(() => {});
+        syncSize = false;
+        revealBottom = false;
+      });
+    };
+    scheduleFit.current = queueFit;
     fitter.fit();
+    void document.fonts.ready.then(() => {
+      if (alive) queueFit(true);
+    });
     const showClosed = (text: string) => {
       if (!alive || reportedClose) return;
       reportedClose = true;
@@ -93,13 +125,8 @@ export default function TerminalPane({
         connected = true;
         setMessage("Encrypted SSH session");
         stateCallback.current(session.id, "connected");
-        fitter.fit();
+        queueFit(true, true);
         term.focus();
-        void invoke("ssh_resize", {
-          sessionId: session.id,
-          cols: term.cols,
-          rows: term.rows,
-        }).catch(() => {});
       } else if (event.type === "authenticationFailed") {
         setAuthFailure(event);
         setRetryOpen(true);
@@ -134,9 +161,7 @@ export default function TerminalPane({
           () => {},
         );
     });
-    const observer = new ResizeObserver(() => {
-      if (mount.current?.clientWidth) fitter.fit();
-    });
+    const observer = new ResizeObserver(() => queueFit());
     observer.observe(mount.current!);
     void invoke("ssh_connect", {
       sessionId: session.id,
@@ -151,6 +176,8 @@ export default function TerminalPane({
       connected = false;
       void invoke("ssh_close", { sessionId: session.id }).catch(() => {});
       observer.disconnect();
+      cancelAnimationFrame(fitFrame);
+      scheduleFit.current = () => {};
       data.dispose();
       resize.dispose();
       term.dispose();
@@ -158,17 +185,16 @@ export default function TerminalPane({
   }, [session.id]);
 
   useEffect(() => {
-    if (active)
-      requestAnimationFrame(() => {
-        fit.current?.fit();
-        terminal.current?.focus();
-      });
+    if (active) {
+      scheduleFit.current(true);
+      terminal.current?.focus();
+    }
   }, [active]);
 
   useEffect(() => {
     if (!terminal.current) return;
     terminal.current.options = terminalOptions(preferences);
-    if (active) requestAnimationFrame(() => fit.current?.fit());
+    if (active) scheduleFit.current(true);
   }, [preferences, active]);
 
   const approve = async (accepted: boolean) => {
