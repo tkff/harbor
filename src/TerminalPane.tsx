@@ -1,3 +1,4 @@
+import { terminalOptions, type Preferences } from "./preferences";
 import Snippets from "./Snippets";
 import ForwardingPanel from "./ForwardingPanel";
 import { useEffect, useRef, useState } from "react";
@@ -18,6 +19,7 @@ import type { ForwardStatus } from "./api";
 type HostKey = Extract<SshEvent, { type: "hostKey" }>;
 export default function TerminalPane({
   session,
+  preferences,
   active,
   onState,
   takeCredentials,
@@ -25,6 +27,7 @@ export default function TerminalPane({
   onEdit,
 }: {
   session: Session;
+  preferences: Preferences;
   active: boolean;
   onState: (id: string, state: Session["state"]) => void;
   takeCredentials: (id: string) => LoginCredentials | null;
@@ -59,28 +62,8 @@ export default function TerminalPane({
     let connected = false;
     let reportedClose = false;
     const term = new Terminal({
-      cursorBlink: true,
-      cursorStyle: "bar",
-      fontSize: 14,
-      lineHeight: 1.35,
-      fontFamily:
-        '"Cascadia Code", "SFMono-Regular", Consolas, "Liberation Mono", monospace',
-      scrollback: 5000,
+      ...terminalOptions(preferences),
       allowProposedApi: false,
-      theme: {
-        background: "#10191f",
-        foreground: "#d9e3e5",
-        cursor: "#6cd5bb",
-        selectionBackground: "#33554f",
-        black: "#18262d",
-        red: "#ed8f8a",
-        green: "#8dd6af",
-        yellow: "#e5c68c",
-        blue: "#8ebbdc",
-        magenta: "#c6a3d6",
-        cyan: "#7fc9c8",
-        white: "#d9e3e5",
-      },
     });
     const fitter = new FitAddon();
     term.loadAddon(fitter);
@@ -182,6 +165,12 @@ export default function TerminalPane({
       });
   }, [active]);
 
+  useEffect(() => {
+    if (!terminal.current) return;
+    terminal.current.options = terminalOptions(preferences);
+    if (active) requestAnimationFrame(() => fit.current?.fit());
+  }, [preferences, active]);
+
   const approve = async (accepted: boolean) => {
     setHostKey(null);
     try {
@@ -278,7 +267,10 @@ export default function TerminalPane({
           <span /> Recording encrypted session log
         </div>
       )}
-      <div className="terminal-content">
+      <div
+        className="terminal-content"
+        style={{ background: terminalOptions(preferences).theme?.background }}
+      >
         <div className="terminal-mount" ref={mount} />
         {showForwards && (
           <ForwardingPanel

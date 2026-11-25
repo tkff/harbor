@@ -2,7 +2,7 @@
 
 A local-first desktop SSH workspace built with Tauri 2, React, TypeScript, Rust, russh, and xterm.js. Open source under MIT. Harbor is a working name.
 
-## Version 0.6.0 alpha
+## Version 0.7.0 alpha
 
 - Create or unlock a password-protected KeePass KDBX vault.
 - Add, edit, search, organize, and delete saved SSH connections.
@@ -32,6 +32,14 @@ Use a dedicated Harbor vault while this alpha is being evaluated. The Rust `keep
 
 Connection names, host addresses, ports, groups, tags, and forwarding rules are stored unencrypted in the local SQLite index. Usernames, passwords, imported private keys, their passphrases, and user certificates are stored inside KDBX. Terminal scrollback is held in memory while a tab is open. This version has manual locking; it does not automatically lock on idle or operating-system sleep.
 
+## Settings and personalization
+
+Open **Settings** in the sidebar, including while the vault is locked. **Appearance** controls the app theme (system/light/dark), accent color, connection list density, and reduced motion. **Terminal** has a separate color scheme selector (Harbor dark, Paper light, High contrast), font presets/size, line height, cursor shape/blink, and scrollback. App and terminal themes are independent: a dark app can have a light terminal and vice versa.
+
+Save changes to apply them. Open terminal sessions update without reconnecting; lowering the scrollback limit removes older buffered lines. Fonts must be installed on your computer or a monospace fallback is used. The Terminal tab includes a live draft preview. **Connections** sets the initial SSH port and group for newly created hosts; it does not modify saved connections. Logging still defaults to off per host.
+
+Preferences are validated and atomically saved to `settings.json` in the app data folder, outside the vault. **Storage & security** shows local paths and links to existing security, logging, and trust views. Each editable section has a restore-defaults action; defaults are not applied until saved. Unsaved changes prompt before closing. Automatic idle/OS locking, retention cleanup, log rotation, and cloud sync remain planned.
+
 ## Correcting a rejected login
 
 When the SSH server rejects authentication, Harbor opens a credential prompt. Correct the username and password, then choose **Retry connection**. For private-key or certificate authentication, correct the username or choose **Edit saved host** to replace the identity. Each retry creates a fresh SSH connection and repeats server fingerprint checks. The retry credentials stay temporary and do not overwrite the vault; use **Edit saved host** to save permanent corrections. Authentication errors can also reflect server authorization policy, not only a mistyped credential. Other connection errors display their reason and offer **Edit saved host**.
@@ -50,7 +58,7 @@ Each file has a 32 MiB limit. If encrypted logging fails or reaches that limit, 
 
 **Known hosts** shows every hostname, port, and trusted SHA-256 SSH fingerprint saved by Harbor on this device, across all vaults. Search by any of those fields. This is a read-only view; changed host keys remain blocked. It is separate from the operating system's OpenSSH `known_hosts` file.
 
-[Settings plan](SETTINGS_PLAN.md) outlines personalization, terminal preferences, connection defaults, security, logging/retention, and storage. Those broader preferences remain planned.
+[Settings plan](SETTINGS_PLAN.md) tracks implemented personalization settings and the remaining security, logging/retention, and sync work.
 
 ## Command snippets and host startup
 
@@ -180,3 +188,5 @@ Version 0.5.0 validation covers encrypted snippet CRUD, portable startup referen
 Version 0.6.0 validation covers encrypted log roundtrips, corruption and truncation detection, wrong-key and renamed-file rejection, logging opt-in and key portability, and encrypted output capture in the loopback SSH integration test.
 
 Login retry validation uses a loopback SSH server to reject saved credentials, request corrected credentials, connect successfully with temporary overrides, preserve the original saved credentials, and verify that failed authentication creates no session log.
+
+Version 0.7.0 validation checks preference defaults, partial-file migration, atomic persistence, validation failures preserving the saved file, corrupt-file recovery, and UI theme independence and live terminal changes.

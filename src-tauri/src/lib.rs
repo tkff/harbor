@@ -2,6 +2,7 @@ mod auth;
 mod forwarding;
 mod hello;
 mod session_logs;
+mod settings;
 mod ssh;
 mod storage;
 
@@ -14,12 +15,30 @@ use tauri::{ipc::Channel, Manager, State};
 use zeroize::Zeroizing;
 
 struct AppState {
+    settings_path: std::path::PathBuf,
     store: Arc<Mutex<Storage>>,
     ssh: ssh::Manager,
     vault_epoch: Arc<AtomicU64>,
 }
 fn message(e: impl std::fmt::Display) -> String {
     e.to_string()
+}
+
+#[tauri::command]
+fn get_settings(state: State<AppState>) -> Result<settings::Settings, String> {
+    settings::load(&state.settings_path).map_err(message)
+}
+#[tauri::command]
+fn save_settings(
+    state: State<AppState>,
+    preferences: settings::Settings,
+) -> Result<settings::Settings, String> {
+    settings::save(&state.settings_path, preferences).map_err(message)
+}
+#[tauri::command]
+fn app_locations(state: State<AppState>) -> serde_json::Value {
+    let folder = state.settings_path.parent().unwrap();
+    serde_json::json!({"settings":state.settings_path.to_string_lossy(),"logs":folder.join("session-logs").to_string_lossy(),"index":folder.join("harbor.db").to_string_lossy()})
 }
 
 #[tauri::command]
@@ -391,6 +410,7 @@ pub fn run() {
             let dir = app.path().app_data_dir()?;
             std::fs::create_dir_all(&dir)?;
             app.manage(AppState {
+                settings_path: dir.join("settings.json"),
                 store: Arc::new(Mutex::new(Storage::open(&dir.join("harbor.db"))?)),
                 ssh: ssh::Manager::default(),
                 vault_epoch: Arc::new(AtomicU64::new(0)),
@@ -399,6 +419,9 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             status,
+            get_settings,
+            save_settings,
+            app_locations,
             unlock_vault,
             lock_vault,
             save_connection,

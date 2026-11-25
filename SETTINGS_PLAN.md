@@ -1,6 +1,6 @@
 # User settings plan
 
-Status: proposed design, not implemented. Session logging and Known hosts listed below are already available in v0.6.0; the broader settings screen remains planned.
+Status: initial Settings screen implemented in v0.7.0. App appearance, terminal appearance, new-host defaults, local storage locations, and links to security/logs/trust panels are available. Other options below remain proposed. App and terminal themes are stored independently.
 
 ## Settings structure
 
@@ -42,3 +42,7 @@ Store non-secret application preferences in a versioned local JSON file in app d
 The current Known hosts view shows all host/port/fingerprint pins trusted by Harbor on this device, across vaults. It does not read or edit the system OpenSSH `known_hosts` file. Future import and trust-reset controls need fingerprint comparison, host matching (including non-default ports), and an explicit explanation of the effect before replacing a pin. Routine settings resets must never clear trust pins or weaken fingerprint validation.
 
 Credential recovery is now available after a rejected SSH login: users can retry with temporary credentials or edit the saved host. Future settings may control whether to offer this prompt automatically; retries must continue to validate host fingerprints and must never silently persist credentials.
+
+## Implemented in v0.7.0
+
+Appearance: system/light/dark app themes, teal/blue/violet accent, comfortable/compact host list, reduced motion. Terminal: Harbor dark/Paper light/High contrast color schemes, four font presets with local fallback, 10-28 px font size, line height, bar/block/underline cursor, blinking cursor, and 1,000-50,000 scrollback lines. Changes apply to existing terminals without reconnecting. App and terminal themes are independent. Connections: default SSH port and group for newly created hosts. Settings are validated and written atomically to local settings.json. Each section supports restoring defaults; unsaved changes have an explicit discard prompt. Storage and security show local file locations and links to existing vault security, log, and known-host controls.

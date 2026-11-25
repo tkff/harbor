@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { open, save } from "@tauri-apps/plugin-dialog";
 import {
   Anchor,
+  Settings2,
   Code2,
   FileText,
   Fingerprint,
@@ -47,6 +48,8 @@ import VaultSecurity from "./VaultSecurity";
 import Snippets from "./Snippets";
 import SessionLogs from "./SessionLogs";
 import KnownHosts from "./KnownHosts";
+import Settings from "./Settings";
+import { defaultPreferences, type Preferences } from "./preferences";
 
 const empty: VaultStatus = {
   unlocked: false,
@@ -59,6 +62,11 @@ const filename = (path: string | null) =>
 type VaultMode = "create" | "open" | "unlock";
 
 export default function App() {
+  const [preferences, setPreferences] =
+    useState<Preferences>(defaultPreferences);
+  const [settingsReady, setSettingsReady] = useState(false);
+  const [settingsLoadError, setSettingsLoadError] = useState("");
+  const [showSettings, setShowSettings] = useState(false);
   const [status, setStatus] = useState<VaultStatus>(empty);
   const [sessions, setSessions] = useState<Session[]>([]);
   const [activeId, setActiveId] = useState<string | null>(null);
@@ -84,6 +92,34 @@ export default function App() {
         .then(setStatus)
         .catch((e) => setError(errorText(e)));
   }, [native]);
+
+  useEffect(() => {
+    if (native)
+      void invoke<Preferences>("get_settings")
+        .then(setPreferences)
+        .catch((e) => setSettingsLoadError(errorText(e)))
+        .finally(() => setSettingsReady(true));
+    else setSettingsReady(true);
+  }, [native]);
+  useEffect(() => {
+    const media = window.matchMedia("(prefers-color-scheme: dark)");
+    const apply = () => {
+      document.documentElement.dataset.theme =
+        preferences.theme === "system"
+          ? media.matches
+            ? "dark"
+            : "light"
+          : preferences.theme;
+    };
+    apply();
+    media.addEventListener("change", apply);
+    document.documentElement.dataset.accent = preferences.accent;
+    document.documentElement.dataset.density = preferences.density;
+    document.documentElement.dataset.reducedMotion = String(
+      preferences.reducedMotion,
+    );
+    return () => media.removeEventListener("change", apply);
+  }, [preferences]);
 
   const folders = useMemo(
     () => [...new Set(status.profiles.map((p) => p.folder))].sort(),
@@ -215,6 +251,10 @@ export default function App() {
         <button className="nav-item" onClick={() => setShowKnownHosts(true)}>
           <Fingerprint size={17} />
           <span>Known hosts</span>
+        </button>
+        <button className="nav-item" onClick={() => setShowSettings(true)}>
+          <Settings2 size={17} />
+          <span>Settings</span>
         </button>
         <div className="host-organization">
           <div className="section-label">
@@ -659,6 +699,7 @@ export default function App() {
             <TerminalPane
               key={session.id}
               session={session}
+              preferences={preferences}
               active={session.id === activeId}
               takeCredentials={(id) => {
                 const credentials = retryCredentials.current.get(id) ?? null;
@@ -697,7 +738,7 @@ export default function App() {
           <span>
             <Laptop size={12} />
             On this device<span className="status-separator">|</span>Harbor
-            v0.6.0
+            v0.7.0
           </span>
         </footer>
       </div>
@@ -712,6 +753,29 @@ export default function App() {
             setVaultMode(null);
             setError("");
           }}
+        />
+      )}
+      {showSettings && (
+        <Settings
+          preferences={preferences}
+          ready={settingsReady}
+          loadError={settingsLoadError}
+          onSaved={(p) => {
+            setPreferences(p);
+            setSettingsLoadError("");
+          }}
+          onClose={() => setShowSettings(false)}
+          onSecurity={() =>
+            status.unlocked
+              ? setVaultSecurity(true)
+              : setVaultMode(status.vaultPath ? "unlock" : "create")
+          }
+          onLogs={() =>
+            status.unlocked
+              ? setShowLogs(true)
+              : setVaultMode(status.vaultPath ? "unlock" : "create")
+          }
+          onKnownHosts={() => setShowKnownHosts(true)}
         />
       )}
       {showLogs && status.unlocked && (
@@ -734,6 +798,7 @@ export default function App() {
         <ConnectionModal
           profile={editor === "new" ? null : editor}
           folders={folders}
+          preferences={preferences}
           onClose={() => setEditor(null)}
           onDone={(s) => {
             setStatus(s);
@@ -794,7 +859,7 @@ export default function App() {
             <div className="modal-icon">
               <Anchor size={26} />
             </div>
-            <div className="eyebrow">HARBOR · VERSION 0.6.0</div>
+            <div className="eyebrow">HARBOR · VERSION 0.7.0</div>
             <h2 id="about-title">A workspace you own.</h2>
             <p>
               Harbor stores credentials in a password-protected KeePass KDBX
@@ -1106,18 +1171,24 @@ function VaultModal({
 function ConnectionModal({
   profile,
   folders,
+  preferences,
   onClose,
   onDone,
 }: {
   profile: Profile | null;
   folders: string[];
+  preferences: Preferences;
   onClose: () => void;
   onDone: (s: VaultStatus) => void;
 }) {
   const [name, setName] = useState(profile?.name ?? "");
   const [host, setHost] = useState(profile?.host ?? "");
-  const [port, setPort] = useState(String(profile?.port ?? 22));
-  const [folder, setFolder] = useState(profile?.folder ?? "General");
+  const [port, setPort] = useState(
+    String(profile?.port ?? preferences.defaultPort),
+  );
+  const [folder, setFolder] = useState(
+    profile?.folder ?? preferences.defaultGroup,
+  );
   const [tagsText, setTagsText] = useState(profile?.tags.join(", ") ?? "");
   const [forwards, setForwards] = useState(profile?.forwards ?? []);
   const [sessionLogging, setSessionLogging] = useState(

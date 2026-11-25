@@ -1790,3 +1790,251 @@ fieldset {
 .credential-retry .actions {
   flex-wrap: wrap;
 }
+.settings-modal {
+  width: min(780px, 95vw);
+}
+.settings-tabs {
+  display: flex;
+  gap: 6px;
+  border-bottom: 1px solid var(--line);
+  margin: 20px 0;
+  padding-bottom: 10px;
+  flex-wrap: wrap;
+}
+.settings-tabs button {
+  background: transparent;
+  color: #657d73;
+  padding: 9px 12px;
+  border-radius: 6px;
+}
+.settings-tabs button[aria-selected="true"] {
+  background: var(--green);
+  color: #fff;
+}
+.settings-modal h3 {
+  margin: 15px 0;
+  font-size: 15px;
+}
+.settings-modal select {
+  width: 100%;
+  background: #fff;
+  color: #2b4c40;
+  border: 1px solid #dce4e0;
+  padding: 10px;
+  border-radius: 6px;
+  font: inherit;
+}
+.settings-modal .form-grid {
+  grid-template-columns: 1fr 1fr;
+}
+.settings-terminal-preview {
+  border-radius: 8px;
+  padding: 18px;
+  overflow: auto;
+  white-space: pre;
+  margin: 20px 0;
+  border: 1px solid #63747c55;
+}
+.settings-location {
+  margin: 15px 0;
+}
+.settings-location strong {
+  display: block;
+  font-size: 12px;
+  margin-bottom: 6px;
+}
+.settings-location code {
+  display: block;
+  overflow-wrap: anywhere;
+  font-size: 12px;
+  user-select: text;
+  color: #607d70;
+}
+.settings-links {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.settings-discard {
+  padding: 12px;
+  border: 1px solid #d5b881;
+  border-radius: 6px;
+  margin-top: 20px;
+}
+.settings-discard button + button {
+  margin-left: 8px;
+}
+.settings-save-status {
+  min-height: 20px;
+  margin-top: 18px;
+  font-size: 12px;
+  color: var(--green);
+}
+:root {
+  --accent-hover: #1b6354;
+}
+:root[data-accent="blue"] {
+  --green: #245fc4;
+  --accent-hover: #194a9e;
+}
+:root[data-accent="violet"] {
+  --green: #7651b3;
+  --accent-hover: #5f3f93;
+}
+button.primary:hover {
+  background: var(--accent-hover);
+}
+.tab-active:after {
+  background: var(--green);
+}
+:root[data-density="compact"] .connection-row {
+  min-height: 62px;
+}
+:root[data-density="compact"] .server-tile {
+  width: 30px;
+  height: 30px;
+}
+:root[data-reduced-motion="true"] *,
+:root[data-reduced-motion="true"] *::before,
+:root[data-reduced-motion="true"] *::after {
+  animation: none !important;
+  transition: none !important;
+  scroll-behavior: auto !important;
+}
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation: none !important;
+    transition: none !important;
+    scroll-behavior: auto !important;
+  }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  color: #dce6e5;
+  background: #182329;
+  --line: #34454b;
+  --muted: #a8b6b8;
+}
+:root[data-theme="dark"] .main-shell,
+:root[data-theme="dark"] .connections-page {
+  background: #182329;
+}
+:root[data-theme="dark"]
+  :is(.topbar, .metrics, .connection-list, .search, .modal, .identity-card) {
+  background: #223139;
+  border-color: #3c4e55;
+  color: #dce6e5;
+}
+:root[data-theme="dark"] :is(.tabbar, .statusbar, .list-header) {
+  background: #1b292f;
+  border-color: #34454b;
+  color: #b5c7c6;
+}
+:root[data-theme="dark"] :is(.home-tab.tab-active, .session-tab.tab-active) {
+  background: #263b42;
+  color: #d3e7e1;
+}
+:root[data-theme="dark"]
+  :is(
+    .breadcrumb strong,
+    .page-heading h1,
+    .page-heading h2,
+    .metric strong,
+    .list-title h2,
+    .empty-connections h2,
+    .onboarding-panel h2,
+    .modal h2,
+    .modal h3,
+    .identity-card h2,
+    .snippet-pick,
+    .host-cell,
+    .folder-cell,
+    .settings-modal select
+  ) {
+  color: #deebe7;
+}
+:root[data-theme="dark"]
+  :is(
+    .page-heading p,
+    .metric > div > span,
+    .connection-name > div > span,
+    .host-cell > span,
+    .modal > p,
+    .identity-card > p,
+    .modal label,
+    .field-hint,
+    .settings-location code,
+    .known-host code,
+    .small.muted,
+    .modal .eyebrow,
+    .settings-tabs button,
+    .empty-connections p
+  ) {
+  color: #afc1bc;
+}
+:root[data-theme="dark"]
+  :is(
+    input,
+    select,
+    button.secondary,
+    .settings-modal select,
+    #host-startup-snippet,
+    .snippets-modal select
+  ) {
+  background: #1b292f;
+  border-color: #4a5e64;
+  color: #deebe7;
+}
+:root[data-theme="dark"]
+  :is(
+    .server-tile,
+    .metric-icon,
+    .pill,
+    .avatar,
+    .modal-icon,
+    .empty-icon,
+    .secure-label,
+    .tag-chip
+  ) {
+  background: #2d4446;
+  border-color: #45605f;
+  color: #bfdcd1;
+}
+:root[data-theme="dark"] .connection-row {
+  border-color: #34454b;
+}
+:root[data-theme="dark"]
+  :is(
+    .connection-row:hover,
+    .snippet-row.selected,
+    button.secondary:hover,
+    .modal-close:hover
+  ) {
+  background: #2b4146;
+}
+:root[data-theme="dark"]
+  :is(.snippet-row, .snippet-list, .known-host, .log-row, .settings-tabs) {
+  border-color: #3a5056;
+}
+:root[data-theme="dark"] .onboarding-panel {
+  background: radial-gradient(ellipse at 50% 20%, #29413c, #223139);
+  border-color: #3c4e55;
+}
+:root[data-theme="dark"] .snippet-delete,
+:root[data-theme="dark"] .form-error {
+  background: #462e2d;
+  color: #f4c5b8;
+  border-color: #78534a;
+}
+:root[data-theme="dark"] .connect-button {
+  background: #2e4c41;
+  color: #c9e8d7;
+}
+:root[data-theme="dark"] .settings-save-status {
+  color: #a7d6c4;
+}
+:root[data-theme="dark"] .settings-tabs button[aria-selected="true"] {
+  color: #fff;
+}
