@@ -7,9 +7,11 @@ export type LogSummary = {
   host: string;
   port: number;
   startedAt: number;
+  logType?: string;
 };
 type LogItem = { id: string; session: LogSummary | null; error: string | null };
 type LogRecord =
+  | { kind: "status"; at: number; event: string }
   | { kind: "output"; at: number; bytes: number[] }
   | { kind: "end"; at: number; reason: string };
 type SavedLog = {
@@ -29,7 +31,14 @@ function text(log: SavedLog) {
     .replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, "")
     .replace(/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f]/g, "");
 }
-export default function SessionLogs({ onClose }: { onClose: () => void }) {
+export default function SessionLogs({
+  onClose,
+  kind = "session",
+}: {
+  onClose: () => void;
+  kind?: "session" | "connection";
+}) {
+  const title = kind === "connection" ? "Connection history" : "Session logs";
   const [items, setItems] = useState<LogItem[]>([]);
   const [selected, setSelected] = useState<SavedLog | null>(null);
   const [search, setSearch] = useState("");
@@ -97,6 +106,9 @@ export default function SessionLogs({ onClose }: { onClose: () => void }) {
       setBusy(false);
     }
   }
+  const filteredItems = items.filter(
+    (item) => !item.session || (item.session.logType ?? "session") === kind,
+  );
   const output = selected ? text(selected) : "";
   const end = selected?.records.at(-1);
   return (
@@ -109,19 +121,21 @@ export default function SessionLogs({ onClose }: { onClose: () => void }) {
       >
         <button
           className="modal-close"
-          aria-label="Close session logs"
+          aria-label={`Close ${title.toLowerCase()}`}
           onClick={onClose}
         >
           <X size={19} />
         </button>
-        <h2 id="logs-title">Session logs.</h2>
+        <h2 id="logs-title">{title}.</h2>
         <p>
           Encrypted on this device. Unlock the matching vault to read them.
-          Output may contain sensitive information echoed by the server.
+          {kind === "session"
+            ? "Output may contain sensitive information echoed by the server."
+            : "Connection history contains outcomes and timestamps, without terminal output."}
         </p>
         <div className="snippet-controls">
           <input
-            aria-label="Search session logs"
+            aria-label={`Search ${title.toLowerCase()}`}
             placeholder="Search host or connection"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
@@ -141,7 +155,7 @@ export default function SessionLogs({ onClose }: { onClose: () => void }) {
         )}
         {busy && <p role="status">Loading logs...</p>}
         <div className="log-list">
-          {items
+          {filteredItems
             .filter((item) =>
               `${item.session?.name} ${item.session?.host} ${item.id}`
                 .toLowerCase()
@@ -171,9 +185,9 @@ export default function SessionLogs({ onClose }: { onClose: () => void }) {
                 </button>
               </div>
             ))}
-          {!busy && !items.length && (
+          {!busy && !filteredItems.length && (
             <p>
-              No logs yet. Enable encrypted logging in a host's connection
+              No logs yet. Check logging defaults or a host's connection
               settings, then connect.
             </p>
           )}
@@ -214,9 +228,20 @@ export default function SessionLogs({ onClose }: { onClose: () => void }) {
             <pre
               className="session-log-output"
               tabIndex={0}
-              aria-label="Session log output"
+              aria-label={
+                kind === "connection"
+                  ? "Connection events"
+                  : "Session log output"
+              }
             >
-              {output.slice(0, 2_000_000) || "No terminal output recorded."}
+              {kind === "connection"
+                ? selected.records
+                    .map(
+                      (record) =>
+                        `${new Date(record.at).toLocaleString()}  ${record.kind === "status" ? record.event : record.kind === "end" ? record.reason : ""}`,
+                    )
+                    .join("\n")
+                : output.slice(0, 2_000_000) || "No terminal output recorded."}
             </pre>
             {output.length > 2_000_000 && (
               <p className="field-hint">
@@ -224,10 +249,12 @@ export default function SessionLogs({ onClose }: { onClose: () => void }) {
                 retains the full recorded output.
               </p>
             )}
-            <p className="field-hint">
-              Text preview removes terminal escape sequences. Full-screen
-              applications may appear as repeated screen updates.
-            </p>
+            {kind === "session" && (
+              <p className="field-hint">
+                Text preview removes terminal escape sequences. Full-screen
+                applications may appear as repeated screen updates.
+              </p>
+            )}
           </>
         )}
       </section>

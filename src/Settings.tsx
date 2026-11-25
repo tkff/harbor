@@ -7,11 +7,12 @@ import {
   terminalOptions,
   type Preferences,
 } from "./preferences";
-type Section = "appearance" | "terminal" | "connections" | "storage";
+type Section = "appearance" | "terminal" | "connections" | "logs" | "storage";
 const sections: [Section, string][] = [
   ["appearance", "Appearance"],
   ["terminal", "Terminal"],
   ["connections", "Connections"],
+  ["logs", "Logs"],
   ["storage", "Storage & security"],
 ];
 export default function Settings({
@@ -95,6 +96,7 @@ export default function Settings({
         "scrollback",
       ],
       connections: ["defaultPort", "defaultGroup"],
+      logs: ["connectionLogging", "sessionLogging"],
     };
     if (section !== "storage") {
       setDraft((p) => ({
@@ -399,6 +401,39 @@ export default function Settings({
                 Used when adding a new host. Existing saved connections keep
                 their own values. Session logging remains an explicit per-host
                 choice and defaults to off.
+              </p>
+            </>
+          )}
+          {section === "logs" && (
+            <>
+              <h3>Global logging defaults</h3>
+              <label className="checkbox-label">
+                <input
+                  type="checkbox"
+                  checked={draft.connectionLogging}
+                  onChange={(e) =>
+                    change("connectionLogging", e.target.checked)
+                  }
+                />
+                Keep encrypted connection history
+              </label>
+              <p className="field-hint">
+                On by default. Records attempts, authentication results, and
+                disconnect reasons, without terminal output.
+              </p>
+              <label className="checkbox-label">
+                <input
+                  type="checkbox"
+                  checked={draft.sessionLogging}
+                  onChange={(e) => change("sessionLogging", e.target.checked)}
+                />
+                Record encrypted terminal sessions
+              </label>
+              <p className="field-hint">
+                Off by default. Records terminal output, which may include
+                echoed commands or secrets. Hosts can use these defaults or
+                explicitly enable or disable either log. Changes apply to new
+                connections.
               </p>
             </>
           )}

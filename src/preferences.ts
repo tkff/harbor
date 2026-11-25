@@ -1,6 +1,8 @@
 import type { ITerminalOptions } from "@xterm/xterm";
 export type Preferences = {
   version: number;
+  connectionLogging: boolean;
+  sessionLogging: boolean;
   theme: "system" | "light" | "dark";
   accent: "teal" | "blue" | "violet";
   density: "comfortable" | "compact";
@@ -17,6 +19,8 @@ export type Preferences = {
 };
 export const defaultPreferences: Preferences = {
   version: 1,
+  connectionLogging: true,
+  sessionLogging: false,
   theme: "system",
   accent: "teal",
   density: "comfortable",

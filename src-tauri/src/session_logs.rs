@@ -19,6 +19,7 @@ const MAGIC: &[u8; 8] = b"HBRLOG01";
 const MAX_FILE: u64 = 32 * 1024 * 1024;
 const MAX_RECORD: usize = 128 * 1024;
 
+#[derive(Clone)]
 pub struct Access {
     pub root: PathBuf,
     pub key: Zeroizing<Vec<u8>>,
@@ -34,6 +35,9 @@ impl Access {
         Ok(self.directory().join(format!("{id}.hlog")))
     }
 }
+fn session_kind() -> String {
+    "session".into()
+}
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Summary {
@@ -42,11 +46,14 @@ pub struct Summary {
     pub host: String,
     pub port: u16,
     pub started_at: u64,
+    #[serde(default = "session_kind")]
+    pub log_type: String,
 }
 #[derive(Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "camelCase")]
 pub enum Record {
     Start { session: Summary },
+    Status { at: u64, event: String },
     Output { at: u64, bytes: Vec<u8> },
     End { at: u64, reason: String },
 }
@@ -101,6 +108,12 @@ pub struct Writer {
 }
 impl Writer {
     pub fn start(access: Access, name: &str, host: &str, port: u16) -> Result<Self> {
+        Self::start_kind(access, name, host, port, "session")
+    }
+    pub fn connection(access: Access, name: &str, host: &str, port: u16) -> Result<Self> {
+        Self::start_kind(access, name, host, port, "connection")
+    }
+    fn start_kind(access: Access, name: &str, host: &str, port: u16, kind: &str) -> Result<Self> {
         let id = Uuid::new_v4().to_string();
         let mut salt = [0; 32];
         getrandom::fill(&mut salt)?;
@@ -131,6 +144,7 @@ impl Writer {
                 host: host.into(),
                 port,
                 started_at: now(),
+                log_type: kind.into(),
             },
         })?;
         Ok(writer)
@@ -173,6 +187,12 @@ impl Writer {
         self.index += 1;
         self.file.flush()?;
         Ok(())
+    }
+    pub fn status(&mut self, event: &str) -> Result<()> {
+        self.record(&Record::Status {
+            at: now(),
+            event: event.into(),
+        })
     }
     pub fn output(&mut self, bytes: &[u8]) -> Result<()> {
         for chunk in bytes.chunks(8192) {

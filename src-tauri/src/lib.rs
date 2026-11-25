@@ -339,15 +339,20 @@ async fn ssh_connect(
     events: Channel<ssh::Event>,
     credentials: Option<ssh::LoginCredentials>,
 ) -> Result<(), String> {
+    let preferences = settings::load(&state.settings_path).map_err(message)?;
     state
         .ssh
-        .connect_with_credentials(
+        .connect_with_logging(
             session_id,
             profile_id,
             (cols, rows),
             state.store.clone(),
             events,
-            credentials,
+            (
+                credentials,
+                preferences.connection_logging,
+                preferences.session_logging,
+            ),
         )
         .await
         .map_err(|e| format!("{e:#}"))

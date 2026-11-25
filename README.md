@@ -2,7 +2,7 @@
 
 A local-first desktop SSH workspace built with Tauri 2, React, TypeScript, Rust, russh, and xterm.js. Open source under MIT. Harbor is a working name.
 
-## Version 0.7.1 alpha
+## Version 0.8.0 alpha
 
 - Create or unlock a password-protected KeePass KDBX vault.
 - Add, edit, search, organize, and delete saved SSH connections.
@@ -36,7 +36,7 @@ Connection names, host addresses, ports, groups, tags, and forwarding rules are 
 
 Open **Settings** in the sidebar, including while the vault is locked. **Appearance** controls the app theme (system/light/dark), accent color, connection list density, and reduced motion. **Terminal** has a separate color scheme selector (Harbor dark, Paper light, High contrast), font presets/size, line height, cursor shape/blink, and scrollback. App and terminal themes are independent: a dark app can have a light terminal and vice versa.
 
-Save changes to apply them. Open terminal sessions update without reconnecting; lowering the scrollback limit removes older buffered lines. Fonts must be installed on your computer or a monospace fallback is used. The Terminal tab includes a live draft preview. **Connections** sets the initial SSH port and group for newly created hosts; it does not modify saved connections. Logging still defaults to off per host.
+Save changes to apply them. Open terminal sessions update without reconnecting; lowering the scrollback limit removes older buffered lines. Fonts must be installed on your computer or a monospace fallback is used. The Terminal tab includes a live draft preview. **Connections** sets the initial SSH port and group for newly created hosts; it does not modify saved connections. Terminal recording defaults to off; connection history defaults to on. Settings > Logs controls both global defaults, with host-level overrides.
 
 Preferences are validated and atomically saved to `settings.json` in the app data folder, outside the vault. **Storage & security** shows local paths and links to existing security, logging, and trust views. Each editable section has a restore-defaults action; defaults are not applied until saved. Unsaved changes prompt before closing. Automatic idle/OS locking, retention cleanup, log rotation, and cloud sync remain planned.
 
@@ -44,9 +44,15 @@ Preferences are validated and atomically saved to `settings.json` in the app dat
 
 When the SSH server rejects authentication, Harbor opens a credential prompt. Correct the username and password, then choose **Retry connection**. For private-key or certificate authentication, correct the username or choose **Edit saved host** to replace the identity. Each retry creates a fresh SSH connection and repeats server fingerprint checks. The retry credentials stay temporary and do not overwrite the vault; use **Edit saved host** to save permanent corrections. Authentication errors can also reflect server authorization policy, not only a mistyped credential. Other connection errors display their reason and offer **Edit saved host**.
 
+## Connection history and global logging defaults
+
+**Connection history** is enabled by default and records each attempt, successful authentication, established shells, failures, and disconnect reasons. It never records terminal output or raw keyboard input. Failed logins and unreachable hosts are recorded too. History is saved in separate encrypted files from terminal recordings, using the same protected vault log key. Opening **Connection history** in the sidebar shows the event timeline; **Session logs** shows terminal recordings.
+
+**Settings > Logs** controls global defaults for connection history (on) and terminal recordings (off). Each host has independent **Use global default / On / Off** choices for both. These settings apply to new connections. Existing hosts retain their prior explicit terminal-recording choice; connection history inherits the global default. New hosts inherit both defaults. The protected log key is created in the vault when logging is first needed, so the vault must be writable for this first connection. Keep a current vault backup with that key.
+
 ## Encrypted session logs
 
-Enable **Record encrypted session logs** in a host's connection editor. It defaults to off and applies to new sessions. Harbor records remote terminal output, encrypted connection metadata, timestamps, and a close reason. Raw keystrokes and authentication credentials are not recorded directly; commands or secrets echoed by the server can still appear in output. Logging starts after successful SSH authentication and the terminal displays an active recording indicator.
+Set **Terminal session recording** to **On**, or inherit the global recording default, in a host's connection editor. The global recording default is off and changes apply to new sessions. Harbor records remote terminal output, encrypted connection metadata, timestamps, and a close reason. Raw keystrokes and authentication credentials are not recorded directly; commands or secrets echoed by the server can still appear in output. Terminal recording starts after successful SSH authentication and the terminal displays an active recording indicator.
 
 Logs are stored outside the vault under the app data directory's `session-logs` folder. Filenames are random UUIDs and file contents are AES-256-GCM authenticated encrypted records. A protected key entry inside the KDBX vault derives a different key for each file using HKDF-SHA256 and a random salt. Records use unique counters and authenticated file IDs, salt, and sequence numbers. Do not delete the **Harbor session log encryption key** entry from the vault: without it, existing logs cannot be decrypted. Normal password changes retain this entry. A backup made before logging was first enabled does not contain the key.
 
@@ -194,3 +200,5 @@ Version 0.7.0 validation checks preference defaults, partial-file migration, ato
 Version 0.7.1 fixes initial terminal fitting so padding cannot hide the last row, schedules a redraw and remote size update after connection/layout/font changes, and records future FIDO2 SSH support in [TODO.md](TODO.md).
 
 Terminal fitting regression checks verified the bottom row before keyboard input, with large fonts/line height, with the forwarding panel open, and with encrypted logging's recording banner visible.
+
+Version 0.8.0 separates encrypted connection history from terminal recordings, adds independent global defaults and per-host inheritance, and validates failed/successful connection history without output capture in the SSH integration test.

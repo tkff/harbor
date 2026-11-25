@@ -21,6 +21,8 @@ export type Profile = {
   folder: string;
   startupSnippet: string | null;
   sessionLogging: boolean;
+  sessionLoggingMode: "inherit" | "on" | "off";
+  connectionLoggingMode: "inherit" | "on" | "off";
   tags: string[];
   forwards: ForwardRule[];
   authMethod: "password" | "privateKey" | "certificate";

@@ -2040,3 +2040,12 @@ button.primary:hover {
 :root[data-theme="dark"] .settings-tabs button[aria-selected="true"] {
   color: #fff;
 }
+
+#host-connection-logging,
+#host-session-logging {
+  width: 100%;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  font: inherit;
+}

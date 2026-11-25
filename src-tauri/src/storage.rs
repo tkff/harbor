@@ -31,6 +31,10 @@ pub struct Profile {
     #[serde(default)]
     pub session_logging: bool,
     #[serde(default)]
+    pub session_logging_mode: String,
+    #[serde(default)]
+    pub connection_logging_mode: String,
+    #[serde(default)]
     pub tags: Vec<String>,
     #[serde(default)]
     pub forwards: Vec<Rule>,
@@ -51,12 +55,39 @@ mod tests {
             folder: "Lab".into(),
             startup_snippet: None,
             session_logging: false,
+            session_logging_mode: None,
+            connection_logging_mode: None,
             tags: vec!["production".into(), "linux".into()],
             username: "harbor-test-user".into(),
             password: Some("test-ssh-secret".into()),
             forwards: vec![],
             authentication: None,
         }
+    }
+
+    #[test]
+    fn inherited_logging_modes_and_lazy_key_creation() -> Result<()> {
+        let dir = tempfile::tempdir()?;
+        let path = dir.path().join("inherited.kdbx");
+        let mut store = Storage::open(&dir.path().join("local.db"))?;
+        store.unlock(&path, Zeroizing::new("test-master-password".into()), true)?;
+        let mut host = profile();
+        host.session_logging_mode = Some("inherit".into());
+        host.connection_logging_mode = Some("inherit".into());
+        let state = store.save_profile(host)?;
+        assert_eq!(state.profiles[0].session_logging_mode, "inherit");
+        assert_eq!(state.profiles[0].connection_logging_mode, "inherit");
+        assert!(store.log_access()?.is_none());
+        let access = store.prepare_log_access()?;
+        let bytes = fs::read(&path)?;
+        assert_eq!(&*access.key, &*store.prepare_log_access()?.key);
+        assert_eq!(bytes, fs::read(&path)?);
+        let mut host = profile();
+        host.id = Some(state.profiles[0].id.clone());
+        host.connection_logging_mode = Some("invalid".into());
+        assert!(store.save_profile(host).is_err());
+        assert_eq!(bytes, fs::read(&path)?);
+        Ok(())
     }
 
     #[test]
@@ -527,6 +558,10 @@ pub struct SaveProfile {
     #[serde(default)]
     pub session_logging: bool,
     #[serde(default)]
+    pub session_logging_mode: Option<String>,
+    #[serde(default)]
+    pub connection_logging_mode: Option<String>,
+    #[serde(default)]
     pub tags: Vec<String>,
     pub username: String,
     // None preserves the existing password on edit.
@@ -678,6 +713,8 @@ impl Storage {
                     folder: r.get(4)?,
                     startup_snippet: None,
                     session_logging: false,
+                    session_logging_mode: String::new(),
+                    connection_logging_mode: String::new(),
                     tags: serde_json::from_str(&r.get::<_, String>(6)?).map_err(|e| {
                         rusqlite::Error::FromSqlConversionFailure(
                             6,
@@ -701,6 +738,23 @@ impl Storage {
                 let entry_id = self.entry_id(&profile.id)?;
                 let entry = v.db.entry(entry_id).context("Credential entry missing")?;
                 profile.session_logging = entry.get("Harbor.SessionLogging") == Some("true");
+                profile.session_logging_mode = entry
+                    .get("Harbor.SessionLoggingMode")
+                    .unwrap_or(if profile.session_logging { "on" } else { "off" })
+                    .into();
+                profile.connection_logging_mode = entry
+                    .get("Harbor.ConnectionLoggingMode")
+                    .unwrap_or("inherit")
+                    .into();
+                for mode in [
+                    &profile.session_logging_mode,
+                    &profile.connection_logging_mode,
+                ] {
+                    anyhow::ensure!(
+                        ["inherit", "on", "off"].contains(&mode.as_str()),
+                        "Invalid host logging mode"
+                    );
+                }
                 profile.startup_snippet = entry
                     .get("Harbor.StartupSnippet")
                     .filter(|id| !id.is_empty())
@@ -883,6 +937,17 @@ impl Storage {
         if let Some(id) = &p.startup_snippet {
             self.snippet(id)?;
         }
+        let session_mode = p
+            .session_logging_mode
+            .as_deref()
+            .unwrap_or(if p.session_logging { "on" } else { "off" });
+        let connection_mode = p.connection_logging_mode.as_deref().unwrap_or("inherit");
+        for mode in [session_mode, connection_mode] {
+            anyhow::ensure!(
+                ["inherit", "on", "off"].contains(&mode),
+                "Invalid host logging mode"
+            );
+        }
         let existing = p.id.as_deref().map(|id| self.entry_id(id)).transpose()?;
         let vault = self.vault.as_mut().context("Unlock your vault first")?;
         let mut candidate = vault.db.clone();
@@ -914,6 +979,8 @@ impl Storage {
             entry.set_unprotected(fields::URL, format!("ssh://{}:{}", host, p.port));
             entry.tags = tags;
             entry.set_unprotected("Harbor.Type", "ssh");
+            entry.set_unprotected("Harbor.SessionLoggingMode", session_mode);
+            entry.set_unprotected("Harbor.ConnectionLoggingMode", connection_mode);
             entry.set_unprotected(
                 "Harbor.SessionLogging",
                 if p.session_logging { "true" } else { "false" },
@@ -1348,6 +1415,15 @@ impl Storage {
             })
         })?;
         Ok(rows.collect::<std::result::Result<Vec<_>, _>>()?)
+    }
+    pub fn prepare_log_access(&mut self) -> Result<crate::session_logs::Access> {
+        if self.log_access()?.is_none() {
+            let vault = self.vault.as_mut().context("Unlock your vault first")?;
+            let mut candidate = vault.db.clone();
+            ensure_log_key(&mut candidate)?;
+            vault.write(candidate, false)?;
+        }
+        self.log_access()?.context("Log encryption key missing")
     }
     pub fn log_access(&self) -> Result<Option<crate::session_logs::Access>> {
         let vault = self.vault.as_ref().context("Unlock your vault first")?;

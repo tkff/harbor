@@ -18,7 +18,7 @@ Use a sidebar Settings page with Appearance, Terminal, Connections, Logs, Securi
 
 ## Current logging behavior
 
-- Host logging is an explicit boolean, off by default; changes affect new sessions.
+- Connection history defaults to on and terminal recording defaults to off. Both have global settings and per-host Use global / On / Off overrides; changes affect new sessions.
 - AES-256-GCM encrypted records live in the app data directory's `session-logs` folder. The matching KDBX vault holds the protected encryption key. Keys are never saved in application preferences.
 - Each encrypted file has a 32 MiB hard limit. Recording errors or the limit disconnect the session with a visible reason, so recording does not silently stop.
 - The current log viewer supports search, text preview, refresh, and explicit deletion. Close sessions before deleting logs. There is no automatic retention cleanup yet.
@@ -46,3 +46,7 @@ Credential recovery is now available after a rejected SSH login: users can retry
 ## Implemented in v0.7.0
 
 Appearance: system/light/dark app themes, teal/blue/violet accent, comfortable/compact host list, reduced motion. Terminal: Harbor dark/Paper light/High contrast color schemes, four font presets with local fallback, 10-28 px font size, line height, bar/block/underline cursor, blinking cursor, and 1,000-50,000 scrollback lines. Changes apply to existing terminals without reconnecting. App and terminal themes are independent. Connections: default SSH port and group for newly created hosts. Settings are validated and written atomically to local settings.json. Each section supports restoring defaults; unsaved changes have an explicit discard prompt. Storage and security show local file locations and links to existing vault security, log, and known-host controls.
+
+## Logging defaults implemented in v0.8.0
+
+Settings > Logs now controls encrypted connection history (on by default) and terminal output recording (off by default). Each host can inherit either global setting or explicitly select On/Off. History and recordings are separate encrypted files and separate viewer panels. Retention, rotation, and cloud sync remain planned.

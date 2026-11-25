@@ -411,6 +411,8 @@ mod tests {
                     folder: "Tests".into(),
                     startup_snippet: None,
                     session_logging: false,
+                    session_logging_mode: None,
+                    connection_logging_mode: None,
                     tags: vec![],
                     username: "tester".into(),
                     password: None,
@@ -472,6 +474,8 @@ mod tests {
                     folder: "Tests".into(),
                     startup_snippet: None,
                     session_logging: false,
+                    session_logging_mode: None,
+                    connection_logging_mode: None,
                     tags: vec![],
                     username: "tester".into(),
                     password: None,
@@ -565,6 +569,8 @@ mod tests {
                 folder: "Tests".into(),
                 startup_snippet: Some(startup.id),
                 session_logging: true,
+                session_logging_mode: None,
+                connection_logging_mode: None,
                 tags: vec![],
                 username: "saved-wrong-user".into(),
                 password: Some("saved-wrong-password".into()),
@@ -580,7 +586,14 @@ mod tests {
             let id = profile_id.clone();
             let connection = tokio::spawn(async move {
                 cloned
-                    .connect("bad-login".into(), id, 80, 24, db, events)
+                    .connect_with_logging(
+                        "bad-login".into(),
+                        id,
+                        (80, 24),
+                        db,
+                        events,
+                        (None, true, false),
+                    )
                     .await
             });
             let key = rx.recv().await.context("Missing host key prompt")?;
@@ -601,20 +614,25 @@ mod tests {
             while rx.recv().await.context("Missing rejection close event")?["type"] != "closed" {}
             assert!(
                 crate::session_logs::list(&store.lock().unwrap().log_access()?.unwrap())?
-                    .is_empty()
+                    .iter()
+                    .all(|item| item.session.as_ref().unwrap().log_type == "connection")
             );
             let (events, mut rx) = channel();
             manager
-                .connect_with_credentials(
+                .connect_with_logging(
                     "test".into(),
                     profile_id.clone(),
                     (80, 24),
                     store.clone(),
                     events,
-                    Some(LoginCredentials {
-                        username: "tester".into(),
-                        password: Some("ssh-test-password".into()),
-                    }),
+                    (
+                        Some(LoginCredentials {
+                            username: "tester".into(),
+                            password: Some("ssh-test-password".into()),
+                        }),
+                        true,
+                        false,
+                    ),
                 )
                 .await?;
             assert_eq!(
@@ -673,8 +691,38 @@ mod tests {
                 let storage = store.lock().unwrap();
                 let access = storage.log_access()?.unwrap();
                 let logs = crate::session_logs::list(&access)?;
-                assert_eq!(logs.len(), 1);
-                let log = crate::session_logs::read(&access, &logs[0].id)?;
+                assert_eq!(logs.len(), 3);
+                let histories: Vec<_> = logs
+                    .iter()
+                    .filter(|item| item.session.as_ref().unwrap().log_type == "connection")
+                    .collect();
+                assert_eq!(histories.len(), 2);
+                let mut rejected = false;
+                let mut connected = false;
+                for item in histories {
+                    let history = crate::session_logs::read(&access, &item.id)?;
+                    assert!(history.complete);
+                    for record in history.records {
+                        match record {
+                            crate::session_logs::Record::Output { .. } => {
+                                panic!("Connection history must never contain terminal output")
+                            }
+                            crate::session_logs::Record::End { reason, .. } => {
+                                rejected |= reason.contains("authentication failed")
+                            }
+                            crate::session_logs::Record::Status { event, .. } => {
+                                connected |= event == "Connected"
+                            }
+                            _ => {}
+                        }
+                    }
+                }
+                assert!(rejected && connected);
+                let item = logs
+                    .iter()
+                    .find(|item| item.session.as_ref().unwrap().log_type == "session")
+                    .unwrap();
+                let log = crate::session_logs::read(&access, &item.id)?;
                 assert!(log.complete);
                 let output: Vec<u8> = log
                     .records
@@ -709,7 +757,7 @@ mod tests {
             assert_eq!(rx.recv().await.unwrap()["type"], "closed");
             assert_eq!(
                 crate::session_logs::list(&store.lock().unwrap().log_access()?.unwrap())?.len(),
-                1
+                3
             );
             server_task.abort();
             Ok::<_, anyhow::Error>(())
@@ -754,7 +802,7 @@ mod tests {
             let server_task=tokio::spawn(async move {server.run_on_socket(config,&socket).await});
             let dir=tempfile::tempdir()?;let mut storage=Storage::open(&dir.path().join("local.db"))?;
             storage.unlock(&dir.path().join("tunnels.kdbx"),zeroize::Zeroizing::new("test-master-password".into()),true)?;
-            let profile=storage.save_profile(SaveProfile {id:None,name:"Forwarding test".into(),host:"127.0.0.1".into(),port,folder:"Tests".into(), startup_snippet: None, session_logging: false, tags: vec![],username:"tester".into(),password:Some("ssh-test-password".into()),forwards:rules.clone(),authentication:None})?.profiles.remove(0);
+            let profile=storage.save_profile(SaveProfile {id:None,name:"Forwarding test".into(),host:"127.0.0.1".into(),port,folder:"Tests".into(), startup_snippet: None, session_logging: false, session_logging_mode: None, connection_logging_mode: None, tags: vec![],username:"tester".into(),password:Some("ssh-test-password".into()),forwards:rules.clone(),authentication:None})?.profiles.remove(0);
             storage.trust_key("127.0.0.1",port,&fingerprint)?;
             let store=Arc::new(Mutex::new(storage));let manager=Manager::default();let(events,mut rx)=channel();
             drop(local_reservation);drop(remote_reservation);
@@ -951,6 +999,7 @@ impl Manager {
         self.connect_with_credentials(id, profile_id, (cols, rows), store, events, None)
             .await
     }
+    #[cfg(test)]
     pub async fn connect_with_credentials(
         &self,
         id: String,
@@ -960,6 +1009,26 @@ impl Manager {
         events: Channel<Event>,
         credentials: Option<LoginCredentials>,
     ) -> Result<()> {
+        self.connect_with_logging(
+            id,
+            profile_id,
+            size,
+            store,
+            events,
+            (credentials, false, false),
+        )
+        .await
+    }
+    pub async fn connect_with_logging(
+        &self,
+        id: String,
+        profile_id: String,
+        size: (u32, u32),
+        store: Arc<Mutex<Storage>>,
+        events: Channel<Event>,
+        options: (Option<LoginCredentials>, bool, bool),
+    ) -> Result<()> {
+        let (credentials, connection_default, session_default) = options;
         let (cols, rows) = size;
         let override_login = credentials.map(|credentials| {
             (
@@ -991,20 +1060,47 @@ impl Manager {
         let (ready_tx, ready_rx) = oneshot::channel();
         tauri::async_runtime::spawn(async move {
             let credentials = (|| {
-                let storage = store.lock().unwrap();
+                let mut storage = store.lock().unwrap();
                 let (profile, user, material) = storage.ssh_credentials(&profile_id)?;
-                let logging = if profile.session_logging {
-                    Some(storage.log_access()?.context(
-                        "Session logging key is missing from the vault; save the host again",
-                    )?)
+                let enabled = |mode: &str, default: bool| match mode {
+                    "on" => true,
+                    "off" => false,
+                    _ => default,
+                };
+                let session_enabled = enabled(&profile.session_logging_mode, session_default);
+                let connection_enabled =
+                    enabled(&profile.connection_logging_mode, connection_default);
+                let access = if session_enabled || connection_enabled {
+                    Some(storage.prepare_log_access()?)
                 } else {
                     None
                 };
+                let logging = if session_enabled {
+                    access.clone()
+                } else {
+                    None
+                };
+                let history = if connection_enabled { access } else { None };
                 let startup = storage.startup_command(&profile)?;
-                Ok::<_, anyhow::Error>((profile, user, material, startup, logging))
+                Ok::<_, anyhow::Error>((profile, user, material, startup, logging, history))
             })();
+            let mut connection_log = None;
             let init = async {
-                let (profile, mut username, mut material, startup, logging) = credentials?;
+                let (profile, mut username, mut material, startup, logging, history) = credentials?;
+                connection_log = history
+                    .map(|access| {
+                        crate::session_logs::Writer::connection(
+                            access,
+                            &profile.name,
+                            &profile.host,
+                            profile.port,
+                        )
+                    })
+                    .transpose()
+                    .context("Could not start encrypted connection history")?;
+                if let Some(log) = connection_log.as_mut() {
+                    log.status("Connection attempt")?;
+                }
                 if let Some((user, password)) = override_login {
                     anyhow::ensure!(
                         !user.trim().is_empty()
@@ -1094,6 +1190,9 @@ impl Manager {
                     });
                     bail!("SSH authentication failed. Check the username, saved credentials, and the server's authorized keys / trusted certificate authority.");
                 }
+                if let Some(log) = connection_log.as_mut() {
+                    log.status("Authenticated")?;
+                }
                 drop(username);
                 let mut recorder = logging
                     .map(|access| {
@@ -1163,6 +1262,9 @@ impl Manager {
                         .await
                         .context("Could not send startup snippet")?;
                 }
+                if let Some(log) = connection_log.as_mut() {
+                    log.status("Connected")?;
+                }
                 Ok::<_, anyhow::Error>((handle, channel, profile.forwards, recorder))
             };
             let result = tokio::select! {
@@ -1172,7 +1274,14 @@ impl Manager {
             };
             match result {
                 Err(error) => {
-                    let message = format!("{error:#}");
+                    let mut message = format!("{error:#}");
+                    if let Some(log) = connection_log.as_mut() {
+                        if let Err(e) = log.finish(&message) {
+                            message = format!(
+                                "{message}; connection history could not be finalized: {e}"
+                            );
+                        }
+                    }
                     let _ = events.send(Event::Closed {
                         message: message.clone(),
                     });
@@ -1234,6 +1343,13 @@ impl Manager {
                         if let Err(e) = log.finish(&message) {
                             message =
                                 format!("{message}; encrypted log could not be finalized: {e}");
+                        }
+                    }
+                    if let Some(log) = connection_log.as_mut() {
+                        if let Err(e) = log.finish(&message) {
+                            message = format!(
+                                "{message}; connection history could not be finalized: {e}"
+                            );
                         }
                     }
                     let _ = events.send(Event::Closed { message });

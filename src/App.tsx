@@ -82,6 +82,7 @@ export default function App() {
   const [vaultSecurity, setVaultSecurity] = useState(false);
   const [showSnippets, setShowSnippets] = useState(false);
   const [showLogs, setShowLogs] = useState(false);
+  const [showHistory, setShowHistory] = useState(false);
   const [showKnownHosts, setShowKnownHosts] = useState(false);
   const retryCredentials = useRef(new Map<string, LoginCredentials>());
   const native = isTauri();
@@ -149,7 +150,15 @@ export default function App() {
   const connect = (profile: Profile, credentials?: LoginCredentials) => {
     const session: Session = {
       id: crypto.randomUUID(),
-      profile,
+      profile: {
+        ...profile,
+        sessionLogging:
+          (profile.sessionLoggingMode ??
+            (profile.sessionLogging ? "on" : "off")) === "inherit"
+            ? preferences.sessionLogging
+            : (profile.sessionLoggingMode ??
+                (profile.sessionLogging ? "on" : "off")) === "on",
+      },
       state: "connecting",
     };
     if (credentials) retryCredentials.current.set(session.id, credentials);
@@ -166,6 +175,7 @@ export default function App() {
       setVaultSecurity(false);
       setShowSnippets(false);
       setShowLogs(false);
+      setShowHistory(false);
       setShowKnownHosts(false);
       setStatus((prev) => ({ ...prev, unlocked: false, profiles: [] }));
     } catch (e) {
@@ -255,6 +265,14 @@ export default function App() {
         <button className="nav-item" onClick={() => setShowSettings(true)}>
           <Settings2 size={17} />
           <span>Settings</span>
+        </button>
+        <button
+          className="nav-item"
+          disabled={!status.unlocked}
+          onClick={() => setShowHistory(true)}
+        >
+          <FileText size={17} />
+          <span>Connection history</span>
         </button>
         <div className="host-organization">
           <div className="section-label">
@@ -738,7 +756,7 @@ export default function App() {
           <span>
             <Laptop size={12} />
             On this device<span className="status-separator">|</span>Harbor
-            v0.7.1
+            v0.8.0
           </span>
         </footer>
       </div>
@@ -777,6 +795,9 @@ export default function App() {
           }
           onKnownHosts={() => setShowKnownHosts(true)}
         />
+      )}
+      {showHistory && status.unlocked && (
+        <SessionLogs kind="connection" onClose={() => setShowHistory(false)} />
       )}
       {showLogs && status.unlocked && (
         <SessionLogs onClose={() => setShowLogs(false)} />
@@ -859,7 +880,7 @@ export default function App() {
             <div className="modal-icon">
               <Anchor size={26} />
             </div>
-            <div className="eyebrow">HARBOR · VERSION 0.7.1</div>
+            <div className="eyebrow">HARBOR · VERSION 0.8.0</div>
             <h2 id="about-title">A workspace you own.</h2>
             <p>
               Harbor stores credentials in a password-protected KeePass KDBX
@@ -1191,9 +1212,15 @@ function ConnectionModal({
   );
   const [tagsText, setTagsText] = useState(profile?.tags.join(", ") ?? "");
   const [forwards, setForwards] = useState(profile?.forwards ?? []);
-  const [sessionLogging, setSessionLogging] = useState(
-    profile?.sessionLogging ?? false,
+  const [sessionLoggingMode, setSessionLoggingMode] = useState<
+    Profile["sessionLoggingMode"]
+  >(
+    profile?.sessionLoggingMode ??
+      (profile ? (profile.sessionLogging ? "on" : "off") : "inherit"),
   );
+  const [connectionLoggingMode, setConnectionLoggingMode] = useState<
+    Profile["connectionLoggingMode"]
+  >(profile?.connectionLoggingMode ?? "inherit");
   const [startupSnippet, setStartupSnippet] = useState(
     profile?.startupSnippet ?? "",
   );
@@ -1253,7 +1280,9 @@ function ConnectionModal({
           authentication: authenticationUpdate(authentication),
           forwards,
           startupSnippet: startupSnippet || null,
-          sessionLogging,
+          sessionLogging: sessionLoggingMode === "on",
+          sessionLoggingMode,
+          connectionLoggingMode,
         },
       });
       setPassword("");
@@ -1398,19 +1427,48 @@ function ConnectionModal({
                 />
               </>
             )}
-          <label className="checkbox-label">
-            <input
-              type="checkbox"
-              checked={sessionLogging}
-              onChange={(e) => setSessionLogging(e.target.checked)}
-            />
-            Record encrypted session logs
-          </label>
+          <label htmlFor="host-connection-logging">Connection history</label>
+          <select
+            id="host-connection-logging"
+            value={connectionLoggingMode}
+            onChange={(e) =>
+              setConnectionLoggingMode(
+                e.target.value as Profile["connectionLoggingMode"],
+              )
+            }
+          >
+            <option value="inherit">
+              Use global default ({preferences.connectionLogging ? "on" : "off"}
+              )
+            </option>
+            <option value="on">On</option>
+            <option value="off">Off</option>
+          </select>
           <p className="field-hint">
-            Off by default. Records server output and session times on this
-            device, using a key stored in your vault. Output can contain echoed
-            commands or secrets. Applies to new sessions. Logging errors or the
-            32 MiB log limit close the session.
+            Records connection attempts and outcomes without terminal output.
+          </p>
+          <label htmlFor="host-session-logging">
+            Terminal session recording
+          </label>
+          <select
+            id="host-session-logging"
+            value={sessionLoggingMode}
+            onChange={(e) =>
+              setSessionLoggingMode(
+                e.target.value as Profile["sessionLoggingMode"],
+              )
+            }
+          >
+            <option value="inherit">
+              Use global default ({preferences.sessionLogging ? "on" : "off"})
+            </option>
+            <option value="on">On</option>
+            <option value="off">Off</option>
+          </select>
+          <p className="field-hint">
+            Encrypted terminal output may contain echoed secrets. Logging errors
+            or the 32 MiB limit close the session. Changes apply to new
+            connections.
           </p>
           <label htmlFor="host-startup-snippet">Startup snippet</label>
           <select

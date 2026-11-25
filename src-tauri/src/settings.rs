@@ -6,6 +6,8 @@ use std::{fs, io::Write, path::Path};
 #[serde(default, rename_all = "camelCase", deny_unknown_fields)]
 pub struct Settings {
     pub version: u8,
+    pub connection_logging: bool,
+    pub session_logging: bool,
     pub theme: String,
     pub accent: String,
     pub density: String,
@@ -24,6 +26,8 @@ impl Default for Settings {
     fn default() -> Self {
         Self {
             version: 1,
+            connection_logging: true,
+            session_logging: false,
             theme: "system".into(),
             accent: "teal".into(),
             density: "comfortable".into(),
@@ -134,6 +138,8 @@ mod tests {
         let dir = tempfile::tempdir()?;
         let path = dir.path().join("settings.json");
         assert_eq!(load(&path)?, Settings::default());
+        assert!(load(&path)?.connection_logging);
+        assert!(!load(&path)?.session_logging);
         fs::write(&path, br#"{"version":1,"theme":"dark"}"#)?;
         let mut settings = load(&path)?;
         assert_eq!(settings.theme, "dark");
