@@ -5,7 +5,14 @@ import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import "@xterm/xterm/css/xterm.css";
 import { ShieldCheck, Unplug, Network, Code2 } from "lucide-react";
-import { Channel, invoke, errorText, type Session, type SshEvent } from "./api";
+import {
+  Channel,
+  invoke,
+  errorText,
+  type Session,
+  type SshEvent,
+  type LoginCredentials,
+} from "./api";
 import type { ForwardStatus } from "./api";
 
 type HostKey = Extract<SshEvent, { type: "hostKey" }>;
@@ -13,15 +20,26 @@ export default function TerminalPane({
   session,
   active,
   onState,
+  takeCredentials,
+  onRetry,
+  onEdit,
 }: {
   session: Session;
   active: boolean;
   onState: (id: string, state: Session["state"]) => void;
+  takeCredentials: (id: string) => LoginCredentials | null;
+  onRetry: (credentials: LoginCredentials) => void;
+  onEdit: () => void;
 }) {
   const mount = useRef<HTMLDivElement>(null);
   const terminal = useRef<Terminal | null>(null);
   const fit = useRef<FitAddon | null>(null);
   const [hostKey, setHostKey] = useState<HostKey | null>(null);
+  const [authFailure, setAuthFailure] = useState<Extract<
+    SshEvent,
+    { type: "authenticationFailed" }
+  > | null>(null);
+  const [retryOpen, setRetryOpen] = useState(false);
   const [message, setMessage] = useState("Establishing a secure connection…");
   const [showForwards, setShowForwards] = useState(false);
   const [showSnippets, setShowSnippets] = useState(false);
@@ -99,6 +117,9 @@ export default function TerminalPane({
           cols: term.cols,
           rows: term.rows,
         }).catch(() => {});
+      } else if (event.type === "authenticationFailed") {
+        setAuthFailure(event);
+        setRetryOpen(true);
       } else if (event.type === "forward") {
         setForwardStates((prev) => ({
           ...prev,
@@ -140,6 +161,7 @@ export default function TerminalPane({
       cols: term.cols,
       rows: term.rows,
       events,
+      credentials: takeCredentials(session.id),
     }).catch((e) => showClosed(errorText(e)));
     return () => {
       alive = false;
@@ -221,6 +243,21 @@ export default function TerminalPane({
         >
           <Code2 size={13} /> Snippets
         </button>
+        {session.state === "closed" && (
+          <>
+            {authFailure && (
+              <button
+                className="forward-toggle"
+                onClick={() => setRetryOpen(true)}
+              >
+                Correct credentials
+              </button>
+            )}
+            <button className="forward-toggle" onClick={onEdit}>
+              Edit saved host
+            </button>
+          </>
+        )}
       </div>
       {showSnippets && session.state === "connected" && active && (
         <Snippets
@@ -236,6 +273,11 @@ export default function TerminalPane({
           }}
         />
       )}
+      {session.profile.sessionLogging && session.state === "connected" && (
+        <div className="recording-indicator" role="status">
+          <span /> Recording encrypted session log
+        </div>
+      )}
       <div className="terminal-content">
         <div className="terminal-mount" ref={mount} />
         {showForwards && (
@@ -249,6 +291,21 @@ export default function TerminalPane({
           />
         )}
       </div>
+      {authFailure && retryOpen && active && (
+        <CredentialRetry
+          failure={authFailure}
+          host={session.profile.host}
+          onCancel={() => setRetryOpen(false)}
+          onEdit={() => {
+            setRetryOpen(false);
+            onEdit();
+          }}
+          onRetry={(credentials) => {
+            setRetryOpen(false);
+            onRetry(credentials);
+          }}
+        />
+      )}
       {hostKey && (
         <div className="terminal-overlay">
           <div className="identity-card">
@@ -282,5 +339,88 @@ export default function TerminalPane({
         </div>
       )}
     </section>
+  );
+}
+
+function CredentialRetry({
+  failure,
+  host,
+  onCancel,
+  onEdit,
+  onRetry,
+}: {
+  failure: Extract<SshEvent, { type: "authenticationFailed" }>;
+  host: string;
+  onCancel: () => void;
+  onEdit: () => void;
+  onRetry: (credentials: LoginCredentials) => void;
+}) {
+  const [username, setUsername] = useState(failure.username);
+  const [password, setPassword] = useState("");
+  return (
+    <div className="terminal-overlay">
+      <form
+        className="identity-card credential-retry"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="retry-title"
+        onSubmit={(event) => {
+          event.preventDefault();
+          const credentials = {
+            username,
+            password: failure.method === "password" ? password : null,
+          };
+          setPassword("");
+          onRetry(credentials);
+        }}
+      >
+        <h2 id="retry-title">Login was rejected.</h2>
+        <p>Check the credentials for {host} and try again.</p>
+        <label htmlFor="retry-username">SSH username</label>
+        <input
+          id="retry-username"
+          autoComplete="off"
+          required
+          maxLength={256}
+          value={username}
+          onChange={(e) => setUsername(e.target.value)}
+        />
+        {failure.method === "password" ? (
+          <>
+            <label htmlFor="retry-password">SSH password</label>
+            <input
+              id="retry-password"
+              type="password"
+              autoComplete="off"
+              required
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+            />
+          </>
+        ) : (
+          <p>
+            The saved{" "}
+            {failure.method === "certificate"
+              ? "OpenSSH certificate and private key"
+              : "private key"}{" "}
+            will be used with this username. Edit the saved host to replace the
+            identity.
+          </p>
+        )}
+        <p className="small muted">
+          Retry credentials apply only to this connection. Edit the saved host
+          to update the vault.
+        </p>
+        <div className="actions">
+          <button type="button" className="secondary" onClick={onCancel}>
+            Cancel
+          </button>
+          <button type="button" className="secondary" onClick={onEdit}>
+            Edit saved host
+          </button>
+          <button className="primary">Retry connection</button>
+        </div>
+      </form>
+    </div>
   );
 }

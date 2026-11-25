@@ -72,6 +72,12 @@ assert.equal(entry.fields.get("Password").getText(), "test-ssh-secret");
 assert.equal(entry.fields.get("Harbor.Host"), "127.0.0.1");
 assert.equal(entry.fields.get("Harbor.Folder"), "Lab");
 assert.deepEqual([...entry.tags].sort(), ["linux", "production"]);
+const logKey = db
+  .getDefaultGroup()
+  .entries.find((e) => e.fields.get("Harbor.Type") === "sessionLogKey");
+if (logKey) {
+  assert.match(logKey.fields.get("Harbor.LogKey").getText(), /^[a-f0-9]{64}$/);
+}
 const snippet = db
   .getDefaultGroup()
   .entries.find((e) => e.fields.get("Title") === "Portable snippet");

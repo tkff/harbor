@@ -29,6 +29,8 @@ pub struct Profile {
     #[serde(default)]
     pub startup_snippet: Option<String>,
     #[serde(default)]
+    pub session_logging: bool,
+    #[serde(default)]
     pub tags: Vec<String>,
     #[serde(default)]
     pub forwards: Vec<Rule>,
@@ -48,12 +50,44 @@ mod tests {
             port: 2222,
             folder: "Lab".into(),
             startup_snippet: None,
+            session_logging: false,
             tags: vec!["production".into(), "linux".into()],
             username: "harbor-test-user".into(),
             password: Some("test-ssh-secret".into()),
             forwards: vec![],
             authentication: None,
         }
+    }
+
+    #[test]
+    fn logging_opt_in_and_portable_vault_key() -> Result<()> {
+        let dir = tempfile::tempdir()?;
+        let path = dir.path().join("logging.kdbx");
+        let mut storage = Storage::open(&dir.path().join("local.db"))?;
+        assert!(storage.log_access().is_err());
+        storage.unlock(&path, Zeroizing::new("test-master-password".into()), true)?;
+        assert!(storage.log_access()?.is_none());
+        let mut host = profile();
+        host.session_logging = true;
+        let status = storage.save_profile(host)?;
+        assert!(status.profiles[0].session_logging);
+        assert_eq!(status.profiles.len(), 1);
+        let key = storage.log_access()?.unwrap().key;
+        let copy = dir.path().join("copy.kdbx");
+        fs::copy(&path, &copy)?;
+        let mut fresh = Storage::open(&dir.path().join("fresh.db"))?;
+        let status = fresh.unlock(&copy, Zeroizing::new("test-master-password".into()), false)?;
+        assert!(status.profiles[0].session_logging);
+        assert_eq!(&*key, &*fresh.log_access()?.unwrap().key);
+        let mut host = profile();
+        host.id = Some(status.profiles[0].id.clone());
+        host.password = None;
+        let status = fresh.save_profile(host)?;
+        assert!(!status.profiles[0].session_logging);
+        assert_eq!(&*key, &*fresh.log_access()?.unwrap().key);
+        fresh.lock();
+        assert!(fresh.log_access().is_err());
+        Ok(())
     }
 
     #[test]
@@ -393,7 +427,10 @@ mod tests {
         let path = dir.path().join("interop.kdbx");
         let mut store = Storage::open(&dir.path().join("local.db"))?;
         store.unlock(&path, Zeroizing::new("test-master-password".into()), true)?;
-        store.save_profile(profile())?;
+        let mut host = profile();
+        host.session_logging = true;
+        store.save_profile(host)?;
+        let log_key = store.log_access()?.unwrap().key;
         store.save_snippet(SaveSnippet {
             id: None,
             name: "Portable snippet".into(),
@@ -411,6 +448,7 @@ mod tests {
         }
         store.lock();
         let state = store.unlock(&path, Zeroizing::new("test-master-password".into()), false)?;
+        assert_eq!(&*log_key, &*store.log_access()?.unwrap().key);
         let id = state.profiles[0].id.clone();
         assert_eq!(store.snippets()?[0].body, "printf updated-by-kdbxweb");
         assert_eq!(store.username(&id)?, "updated-by-kdbxweb");
@@ -425,7 +463,10 @@ mod tests {
         store.save_profile(updated)?;
         let vault = store.vault.as_ref().unwrap();
         let root = vault.db.root();
-        let e = root.entries().next().unwrap();
+        let e = root
+            .entries()
+            .find(|e| e.get("Harbor.Type") == Some("ssh"))
+            .unwrap();
         assert_eq!(e.get("Independent.Custom"), Some("preserve me"));
         assert!(!e.history.as_ref().unwrap().get_entries().is_empty());
         Ok(())
@@ -483,6 +524,8 @@ pub struct SaveProfile {
     pub folder: String,
     #[serde(default)]
     pub startup_snippet: Option<String>,
+    #[serde(default)]
+    pub session_logging: bool,
     #[serde(default)]
     pub tags: Vec<String>,
     pub username: String,
@@ -634,6 +677,7 @@ impl Storage {
                     port: r.get(3)?,
                     folder: r.get(4)?,
                     startup_snippet: None,
+                    session_logging: false,
                     tags: serde_json::from_str(&r.get::<_, String>(6)?).map_err(|e| {
                         rusqlite::Error::FromSqlConversionFailure(
                             6,
@@ -656,6 +700,7 @@ impl Storage {
             for profile in &mut profiles {
                 let entry_id = self.entry_id(&profile.id)?;
                 let entry = v.db.entry(entry_id).context("Credential entry missing")?;
+                profile.session_logging = entry.get("Harbor.SessionLogging") == Some("true");
                 profile.startup_snippet = entry
                     .get("Harbor.StartupSnippet")
                     .filter(|id| !id.is_empty())
@@ -841,6 +886,9 @@ impl Storage {
         let existing = p.id.as_deref().map(|id| self.entry_id(id)).transpose()?;
         let vault = self.vault.as_mut().context("Unlock your vault first")?;
         let mut candidate = vault.db.clone();
+        if p.session_logging {
+            ensure_log_key(&mut candidate)?;
+        }
         let new_id = if existing.is_none() {
             Some(candidate.root_mut().add_entry().id())
         } else {
@@ -866,6 +914,10 @@ impl Storage {
             entry.set_unprotected(fields::URL, format!("ssh://{}:{}", host, p.port));
             entry.tags = tags;
             entry.set_unprotected("Harbor.Type", "ssh");
+            entry.set_unprotected(
+                "Harbor.SessionLogging",
+                if p.session_logging { "true" } else { "false" },
+            );
             entry.set_unprotected(
                 "Harbor.StartupSnippet",
                 p.startup_snippet.as_deref().unwrap_or(""),
@@ -1273,5 +1325,77 @@ fn validate_snippet_body(body: &str) -> Result<()> {
             .any(|c| c.is_control() && c != '\n' && c != '\r' && c != '\t'),
         "Snippet commands cannot contain terminal control characters"
     );
+    Ok(())
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct KnownHost {
+    pub host: String,
+    pub port: u16,
+    pub fingerprint: String,
+}
+impl Storage {
+    pub fn known_hosts(&self) -> Result<Vec<KnownHost>> {
+        let mut statement = self
+            .sql
+            .prepare("SELECT host,port,fingerprint FROM host_keys ORDER BY host,port")?;
+        let rows = statement.query_map([], |r| {
+            Ok(KnownHost {
+                host: r.get(0)?,
+                port: r.get(1)?,
+                fingerprint: r.get(2)?,
+            })
+        })?;
+        Ok(rows.collect::<std::result::Result<Vec<_>, _>>()?)
+    }
+    pub fn log_access(&self) -> Result<Option<crate::session_logs::Access>> {
+        let vault = self.vault.as_ref().context("Unlock your vault first")?;
+        let key = find_log_key(vault.db.root());
+        let Some(key) = key else { return Ok(None) };
+        anyhow::ensure!(
+            key.len() == 64 && key.is_ascii(),
+            "Invalid session logging key in vault"
+        );
+        let bytes = (0..64)
+            .step_by(2)
+            .map(|i| u8::from_str_radix(&key[i..i + 2], 16))
+            .collect::<std::result::Result<Vec<_>, _>>()
+            .context("Invalid session logging key")?;
+        let database_path = self.sql.path().context("Local database path missing")?;
+        Ok(Some(crate::session_logs::Access {
+            root: Path::new(database_path)
+                .parent()
+                .context("Local data folder missing")?
+                .join("session-logs"),
+            key: Zeroizing::new(bytes),
+        }))
+    }
+}
+fn find_log_key(group: keepass::db::GroupRef<'_>) -> Option<Zeroizing<String>> {
+    for entry in group.entries() {
+        if entry.get("Harbor.Type") == Some("sessionLogKey") {
+            return entry.get("Harbor.LogKey").map(|k| Zeroizing::new(k.into()));
+        }
+    }
+    for child in group.groups() {
+        if let Some(key) = find_log_key(child) {
+            return Some(key);
+        }
+    }
+    None
+}
+fn ensure_log_key(db: &mut Database) -> Result<()> {
+    if find_log_key(db.root()).is_some() {
+        return Ok(());
+    }
+    let mut key = Zeroizing::new([0u8; 32]);
+    getrandom::fill(key.as_mut())?;
+    let encoded = Zeroizing::new(key.iter().map(|b| format!("{b:02x}")).collect::<String>());
+    let mut root = db.root_mut();
+    let mut entry = root.add_entry();
+    entry.set_unprotected(fields::TITLE, "Harbor session log encryption key");
+    entry.set_unprotected("Harbor.Type", "sessionLogKey");
+    entry.set_protected("Harbor.LogKey", encoded.as_str());
     Ok(())
 }

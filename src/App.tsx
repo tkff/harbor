@@ -1,8 +1,10 @@
-import { useEffect, useMemo, useState, type FormEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { open, save } from "@tauri-apps/plugin-dialog";
 import {
   Anchor,
   Code2,
+  FileText,
+  Fingerprint,
   ArrowDownLeft,
   ArrowRight,
   Check,
@@ -33,6 +35,7 @@ import {
   type VaultStatus,
   type HelloStatus,
   type Snippet,
+  type LoginCredentials,
 } from "./api";
 import TerminalPane from "./TerminalPane";
 import ForwardingEditor from "./ForwardingEditor";
@@ -42,6 +45,8 @@ import AuthenticationFields, {
 } from "./AuthenticationFields";
 import VaultSecurity from "./VaultSecurity";
 import Snippets from "./Snippets";
+import SessionLogs from "./SessionLogs";
+import KnownHosts from "./KnownHosts";
 
 const empty: VaultStatus = {
   unlocked: false,
@@ -68,6 +73,9 @@ export default function App() {
   const [help, setHelp] = useState(false);
   const [vaultSecurity, setVaultSecurity] = useState(false);
   const [showSnippets, setShowSnippets] = useState(false);
+  const [showLogs, setShowLogs] = useState(false);
+  const [showKnownHosts, setShowKnownHosts] = useState(false);
+  const retryCredentials = useRef(new Map<string, LoginCredentials>());
   const native = isTauri();
 
   useEffect(() => {
@@ -94,6 +102,7 @@ export default function App() {
   const active = sessions.find((s) => s.id === activeId);
 
   const closeTab = (id: string) => {
+    retryCredentials.current.delete(id);
     void invoke("ssh_close", { sessionId: id }).catch(() => {});
     setSessions((prev) => {
       const next = prev.filter((s) => s.id !== id);
@@ -101,23 +110,27 @@ export default function App() {
       return next;
     });
   };
-  const connect = (profile: Profile) => {
+  const connect = (profile: Profile, credentials?: LoginCredentials) => {
     const session: Session = {
       id: crypto.randomUUID(),
       profile,
       state: "connecting",
     };
+    if (credentials) retryCredentials.current.set(session.id, credentials);
     setSessions((prev) => [...prev, session]);
     setActiveId(session.id);
   };
   const lock = async () => {
     try {
       await invoke("lock_vault");
+      retryCredentials.current.clear();
       setSessions([]);
       setActiveId(null);
       setEditor(null);
       setVaultSecurity(false);
       setShowSnippets(false);
+      setShowLogs(false);
+      setShowKnownHosts(false);
       setStatus((prev) => ({ ...prev, unlocked: false, profiles: [] }));
     } catch (e) {
       setError(errorText(e));
@@ -190,6 +203,18 @@ export default function App() {
         >
           <Code2 size={17} />
           <span>Snippets</span>
+        </button>
+        <button
+          className="nav-item"
+          disabled={!status.unlocked}
+          onClick={() => setShowLogs(true)}
+        >
+          <FileText size={17} />
+          <span>Session logs</span>
+        </button>
+        <button className="nav-item" onClick={() => setShowKnownHosts(true)}>
+          <Fingerprint size={17} />
+          <span>Known hosts</span>
         </button>
         <div className="host-organization">
           <div className="section-label">
@@ -635,6 +660,25 @@ export default function App() {
               key={session.id}
               session={session}
               active={session.id === activeId}
+              takeCredentials={(id) => {
+                const credentials = retryCredentials.current.get(id) ?? null;
+                retryCredentials.current.delete(id);
+                return credentials;
+              }}
+              onRetry={(credentials) => {
+                closeTab(session.id);
+                connect(
+                  status.profiles.find((p) => p.id === session.profile.id) ??
+                    session.profile,
+                  credentials,
+                );
+              }}
+              onEdit={() =>
+                setEditor(
+                  status.profiles.find((p) => p.id === session.profile.id) ??
+                    session.profile,
+                )
+              }
               onState={(id, state) =>
                 setSessions((prev) =>
                   prev.map((s) => (s.id === id ? { ...s, state } : s)),
@@ -653,7 +697,7 @@ export default function App() {
           <span>
             <Laptop size={12} />
             On this device<span className="status-separator">|</span>Harbor
-            v0.5.0
+            v0.6.0
           </span>
         </footer>
       </div>
@@ -669,6 +713,12 @@ export default function App() {
             setError("");
           }}
         />
+      )}
+      {showLogs && status.unlocked && (
+        <SessionLogs onClose={() => setShowLogs(false)} />
+      )}
+      {showKnownHosts && (
+        <KnownHosts onClose={() => setShowKnownHosts(false)} />
       )}
       {showSnippets && status.unlocked && (
         <Snippets onClose={() => setShowSnippets(false)} />
@@ -744,7 +794,7 @@ export default function App() {
             <div className="modal-icon">
               <Anchor size={26} />
             </div>
-            <div className="eyebrow">HARBOR · VERSION 0.5.0</div>
+            <div className="eyebrow">HARBOR · VERSION 0.6.0</div>
             <h2 id="about-title">A workspace you own.</h2>
             <p>
               Harbor stores credentials in a password-protected KeePass KDBX
@@ -1070,6 +1120,9 @@ function ConnectionModal({
   const [folder, setFolder] = useState(profile?.folder ?? "General");
   const [tagsText, setTagsText] = useState(profile?.tags.join(", ") ?? "");
   const [forwards, setForwards] = useState(profile?.forwards ?? []);
+  const [sessionLogging, setSessionLogging] = useState(
+    profile?.sessionLogging ?? false,
+  );
   const [startupSnippet, setStartupSnippet] = useState(
     profile?.startupSnippet ?? "",
   );
@@ -1129,6 +1182,7 @@ function ConnectionModal({
           authentication: authenticationUpdate(authentication),
           forwards,
           startupSnippet: startupSnippet || null,
+          sessionLogging,
         },
       });
       setPassword("");
@@ -1273,6 +1327,20 @@ function ConnectionModal({
                 />
               </>
             )}
+          <label className="checkbox-label">
+            <input
+              type="checkbox"
+              checked={sessionLogging}
+              onChange={(e) => setSessionLogging(e.target.checked)}
+            />
+            Record encrypted session logs
+          </label>
+          <p className="field-hint">
+            Off by default. Records server output and session times on this
+            device, using a key stored in your vault. Output can contain echoed
+            commands or secrets. Applies to new sessions. Logging errors or the
+            32 MiB log limit close the session.
+          </p>
           <label htmlFor="host-startup-snippet">Startup snippet</label>
           <select
             id="host-startup-snippet"

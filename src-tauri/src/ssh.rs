@@ -7,7 +7,7 @@ use russh::{
     keys::{HashAlg, PublicKeyOrCertificate},
     ChannelMsg, Disconnect,
 };
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::{
     collections::HashMap,
     sync::{Arc, Mutex},
@@ -29,6 +29,10 @@ pub enum Event {
         fingerprint: String,
     },
     Connected,
+    AuthenticationFailed {
+        username: String,
+        method: auth::Method,
+    },
     Forward {
         #[serde(rename = "ruleId")]
         rule_id: String,
@@ -38,6 +42,13 @@ pub enum Event {
     Closed {
         message: String,
     },
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LoginCredentials {
+    pub username: String,
+    pub password: Option<String>,
 }
 
 #[cfg(test)]
@@ -399,6 +410,7 @@ mod tests {
                     port,
                     folder: "Tests".into(),
                     startup_snippet: None,
+                    session_logging: false,
                     tags: vec![],
                     username: "tester".into(),
                     password: None,
@@ -459,6 +471,7 @@ mod tests {
                     port,
                     folder: "Tests".into(),
                     startup_snippet: None,
+                    session_logging: false,
                     tags: vec![],
                     username: "tester".into(),
                     password: None,
@@ -551,9 +564,10 @@ mod tests {
                 port,
                 folder: "Tests".into(),
                 startup_snippet: Some(startup.id),
+                session_logging: true,
                 tags: vec![],
-                username: "tester".into(),
-                password: Some("ssh-test-password".into()),
+                username: "saved-wrong-user".into(),
+                password: Some("saved-wrong-password".into()),
                 forwards: vec![],
                 authentication: None,
             })?;
@@ -564,15 +578,53 @@ mod tests {
             let cloned = manager.clone();
             let db = store.clone();
             let id = profile_id.clone();
-            let connection =
-                tokio::spawn(
-                    async move { cloned.connect("test".into(), id, 80, 24, db, events).await },
-                );
+            let connection = tokio::spawn(async move {
+                cloned
+                    .connect("bad-login".into(), id, 80, 24, db, events)
+                    .await
+            });
             let key = rx.recv().await.context("Missing host key prompt")?;
             assert_eq!(key["type"], "hostKey");
             assert!(key["fingerprint"].as_str().unwrap().starts_with("SHA256:"));
-            manager.approve("test", true)?;
-            connection.await??;
+            manager.approve("bad-login", true)?;
+            assert!(connection
+                .await?
+                .unwrap_err()
+                .to_string()
+                .contains("authentication failed"));
+            let rejected = rx
+                .recv()
+                .await
+                .context("Missing authentication rejection")?;
+            assert_eq!(rejected["type"], "authenticationFailed");
+            assert_eq!(rejected["username"], "saved-wrong-user");
+            while rx.recv().await.context("Missing rejection close event")?["type"] != "closed" {}
+            assert!(
+                crate::session_logs::list(&store.lock().unwrap().log_access()?.unwrap())?
+                    .is_empty()
+            );
+            let (events, mut rx) = channel();
+            manager
+                .connect_with_credentials(
+                    "test".into(),
+                    profile_id.clone(),
+                    (80, 24),
+                    store.clone(),
+                    events,
+                    Some(LoginCredentials {
+                        username: "tester".into(),
+                        password: Some("ssh-test-password".into()),
+                    }),
+                )
+                .await?;
+            assert_eq!(
+                store.lock().unwrap().username(&profile_id)?,
+                "saved-wrong-user"
+            );
+            assert_eq!(
+                store.lock().unwrap().credentials(&profile_id)?.2.as_str(),
+                "saved-wrong-password"
+            );
             manager
                 .input("test", Input::Data(b"hello terminal\r\n".to_vec()))
                 .await?;
@@ -617,6 +669,29 @@ mod tests {
             assert!(sizes.lock().unwrap().contains(&(120, 40)));
             manager.close_all();
             while rx.recv().await.context("Missing close event")?["type"] != "closed" {}
+            {
+                let storage = store.lock().unwrap();
+                let access = storage.log_access()?.unwrap();
+                let logs = crate::session_logs::list(&access)?;
+                assert_eq!(logs.len(), 1);
+                let log = crate::session_logs::read(&access, &logs[0].id)?;
+                assert!(log.complete);
+                let output: Vec<u8> = log
+                    .records
+                    .iter()
+                    .filter_map(|record| match record {
+                        crate::session_logs::Record::Output { bytes, .. } => Some(bytes.as_slice()),
+                        _ => None,
+                    })
+                    .flatten()
+                    .copied()
+                    .collect();
+                assert!(String::from_utf8_lossy(&output).contains("hello terminal"));
+                let hosts = storage.known_hosts()?;
+                assert_eq!(hosts.len(), 1);
+                assert_eq!(hosts[0].port, port);
+                assert!(hosts[0].fingerprint.starts_with("SHA256:"));
+            }
             // A changed pinned identity must fail before authentication.
             store
                 .lock()
@@ -632,6 +707,10 @@ mod tests {
                 .to_string()
                 .contains("fingerprint changed"));
             assert_eq!(rx.recv().await.unwrap()["type"], "closed");
+            assert_eq!(
+                crate::session_logs::list(&store.lock().unwrap().log_access()?.unwrap())?.len(),
+                1
+            );
             server_task.abort();
             Ok::<_, anyhow::Error>(())
         })
@@ -675,7 +754,7 @@ mod tests {
             let server_task=tokio::spawn(async move {server.run_on_socket(config,&socket).await});
             let dir=tempfile::tempdir()?;let mut storage=Storage::open(&dir.path().join("local.db"))?;
             storage.unlock(&dir.path().join("tunnels.kdbx"),zeroize::Zeroizing::new("test-master-password".into()),true)?;
-            let profile=storage.save_profile(SaveProfile {id:None,name:"Forwarding test".into(),host:"127.0.0.1".into(),port,folder:"Tests".into(), startup_snippet: None, tags: vec![],username:"tester".into(),password:Some("ssh-test-password".into()),forwards:rules.clone(),authentication:None})?.profiles.remove(0);
+            let profile=storage.save_profile(SaveProfile {id:None,name:"Forwarding test".into(),host:"127.0.0.1".into(),port,folder:"Tests".into(), startup_snippet: None, session_logging: false, tags: vec![],username:"tester".into(),password:Some("ssh-test-password".into()),forwards:rules.clone(),authentication:None})?.profiles.remove(0);
             storage.trust_key("127.0.0.1",port,&fingerprint)?;
             let store=Arc::new(Mutex::new(storage));let manager=Manager::default();let(events,mut rx)=channel();
             drop(local_reservation);drop(remote_reservation);
@@ -803,6 +882,9 @@ impl client::Handler for Verify {
 }
 
 impl Manager {
+    pub fn has_sessions(&self) -> bool {
+        !self.sessions.lock().unwrap().is_empty()
+    }
     pub fn approve(&self, id: &str, accepted: bool) -> Result<()> {
         self.approvals
             .lock()
@@ -856,6 +938,7 @@ impl Manager {
             .context("Session closed while updating forwarding")?
             .map_err(anyhow::Error::msg)
     }
+    #[cfg(test)]
     pub async fn connect(
         &self,
         id: String,
@@ -865,6 +948,25 @@ impl Manager {
         store: Arc<Mutex<Storage>>,
         events: Channel<Event>,
     ) -> Result<()> {
+        self.connect_with_credentials(id, profile_id, (cols, rows), store, events, None)
+            .await
+    }
+    pub async fn connect_with_credentials(
+        &self,
+        id: String,
+        profile_id: String,
+        size: (u32, u32),
+        store: Arc<Mutex<Storage>>,
+        events: Channel<Event>,
+        credentials: Option<LoginCredentials>,
+    ) -> Result<()> {
+        let (cols, rows) = size;
+        let override_login = credentials.map(|credentials| {
+            (
+                zeroize::Zeroizing::new(credentials.username),
+                credentials.password.map(zeroize::Zeroizing::new),
+            )
+        });
         // Insert before reading credentials so lock_vault always sees and cancels this session.
         let (tx, mut input) = mpsc::channel::<Input>(128);
         let cancel = CancellationToken::new();
@@ -891,11 +993,37 @@ impl Manager {
             let credentials = (|| {
                 let storage = store.lock().unwrap();
                 let (profile, user, material) = storage.ssh_credentials(&profile_id)?;
+                let logging = if profile.session_logging {
+                    Some(storage.log_access()?.context(
+                        "Session logging key is missing from the vault; save the host again",
+                    )?)
+                } else {
+                    None
+                };
                 let startup = storage.startup_command(&profile)?;
-                Ok::<_, anyhow::Error>((profile, user, material, startup))
+                Ok::<_, anyhow::Error>((profile, user, material, startup, logging))
             })();
             let init = async {
-                let (profile, username, material, startup) = credentials?;
+                let (profile, mut username, mut material, startup, logging) = credentials?;
+                if let Some((user, password)) = override_login {
+                    anyhow::ensure!(
+                        !user.trim().is_empty()
+                            && user.len() <= 256
+                            && !user.chars().any(char::is_control),
+                        "Enter a valid SSH username (up to 256 bytes)"
+                    );
+                    username = user;
+                    if profile.auth_method == auth::Method::Password {
+                        material = auth::Material::Password(
+                            password.context("Enter a password for this retry")?,
+                        );
+                    } else {
+                        anyhow::ensure!(
+                            password.is_none(),
+                            "Password overrides apply only to password authentication"
+                        );
+                    }
+                }
                 let verify = Verify {
                     id: id.clone(),
                     host: profile.host.clone(),
@@ -960,9 +1088,24 @@ impl Manager {
                     as Result<russh::client::AuthResult>;
                 let result = result?;
                 if !result.success() {
+                    let _ = events.send(Event::AuthenticationFailed {
+                        username: username.to_string(),
+                        method: profile.auth_method,
+                    });
                     bail!("SSH authentication failed. Check the username, saved credentials, and the server's authorized keys / trusted certificate authority.");
                 }
                 drop(username);
+                let mut recorder = logging
+                    .map(|access| {
+                        crate::session_logs::Writer::start(
+                            access,
+                            &profile.name,
+                            &profile.host,
+                            profile.port,
+                        )
+                    })
+                    .transpose()
+                    .context("Could not start encrypted session logging")?;
                 let channel = handle.channel_open_session().await?;
                 channel
                     .request_pty(
@@ -981,6 +1124,16 @@ impl Manager {
                     match channel.wait().await {
                         Some(ChannelMsg::Success) => break,
                         Some(ChannelMsg::Failure) | None => bail!("Server refused a terminal"),
+                        Some(ChannelMsg::Data { data })
+                        | Some(ChannelMsg::ExtendedData { data, .. }) => {
+                            if let Some(log) = recorder.as_mut() {
+                                log.output(&data)
+                                    .context("Encrypted session logging failed")?;
+                            }
+                            events.send(Event::Data {
+                                bytes: data.to_vec(),
+                            })?;
+                        }
                         _ => {}
                     }
                 }
@@ -991,7 +1144,12 @@ impl Manager {
                         Some(ChannelMsg::Failure) | None => {
                             bail!("Server refused an interactive shell")
                         }
-                        Some(ChannelMsg::Data { data }) => {
+                        Some(ChannelMsg::Data { data })
+                        | Some(ChannelMsg::ExtendedData { data, .. }) => {
+                            if let Some(log) = recorder.as_mut() {
+                                log.output(&data)
+                                    .context("Encrypted session logging failed")?;
+                            }
                             events.send(Event::Data {
                                 bytes: data.to_vec(),
                             })?;
@@ -1005,7 +1163,7 @@ impl Manager {
                         .await
                         .context("Could not send startup snippet")?;
                 }
-                Ok::<_, anyhow::Error>((handle, channel, profile.forwards))
+                Ok::<_, anyhow::Error>((handle, channel, profile.forwards, recorder))
             };
             let result = tokio::select! {
                 biased;
@@ -1020,7 +1178,7 @@ impl Manager {
                     });
                     let _ = ready_tx.send(Err(message));
                 }
-                Ok((handle, channel, rules)) => {
+                Ok((handle, channel, rules, mut recorder)) => {
                     let handle = Arc::new(handle);
                     let tunnels = Tunnels::new(
                         handle.clone(),
@@ -1043,7 +1201,7 @@ impl Manager {
                                     None => break,
                                 },
                                 message = reader.wait() => match message {
-                                    Some(ChannelMsg::Data {data}) | Some(ChannelMsg::ExtendedData {data,..}) => events.send(Event::Data {bytes:data.to_vec()})?,
+                                    Some(ChannelMsg::Data {data}) | Some(ChannelMsg::ExtendedData {data,..}) => { if let Some(log) = recorder.as_mut() {log.output(&data).context("Encrypted session logging failed")?;} events.send(Event::Data {bytes:data.to_vec()})?; },
                                     Some(ChannelMsg::Close) | None => break,
                                     _ => {}
                                 }
@@ -1068,12 +1226,17 @@ impl Manager {
                         ),
                     )
                     .await;
-                    let _ = events.send(Event::Closed {
-                        message: outcome
-                            .err()
-                            .map(|e| e.to_string())
-                            .unwrap_or_else(|| "Session closed".into()),
-                    });
+                    let mut message = outcome
+                        .err()
+                        .map(|e| format!("{e:#}"))
+                        .unwrap_or_else(|| "Session closed".into());
+                    if let Some(log) = recorder.as_mut() {
+                        if let Err(e) = log.finish(&message) {
+                            message =
+                                format!("{message}; encrypted log could not be finalized: {e}");
+                        }
+                    }
+                    let _ = events.send(Event::Closed { message });
                 }
             }
             manager.sessions.lock().unwrap().remove(&id);

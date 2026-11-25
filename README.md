@@ -2,7 +2,7 @@
 
 A local-first desktop SSH workspace built with Tauri 2, React, TypeScript, Rust, russh, and xterm.js. Open source under MIT. Harbor is a working name.
 
-## Version 0.5.0 alpha
+## Version 0.6.0 alpha
 
 - Create or unlock a password-protected KeePass KDBX vault.
 - Add, edit, search, organize, and delete saved SSH connections.
@@ -31,6 +31,26 @@ On Windows, open the provided `Harbor.exe`. It uses the Microsoft Edge WebView2 
 Use a dedicated Harbor vault while this alpha is being evaluated. The Rust `keepass` library labels KDBX writing experimental. Every save is re-opened for verification before replacement, but comprehensive compatibility testing across all KeePass extensions and database configurations is still needed. KDBX 4 vaults using a password, or password plus key file, are supported. Existing unrelated vault entries are preserved and are not shown as connections.
 
 Connection names, host addresses, ports, groups, tags, and forwarding rules are stored unencrypted in the local SQLite index. Usernames, passwords, imported private keys, their passphrases, and user certificates are stored inside KDBX. Terminal scrollback is held in memory while a tab is open. This version has manual locking; it does not automatically lock on idle or operating-system sleep.
+
+## Correcting a rejected login
+
+When the SSH server rejects authentication, Harbor opens a credential prompt. Correct the username and password, then choose **Retry connection**. For private-key or certificate authentication, correct the username or choose **Edit saved host** to replace the identity. Each retry creates a fresh SSH connection and repeats server fingerprint checks. The retry credentials stay temporary and do not overwrite the vault; use **Edit saved host** to save permanent corrections. Authentication errors can also reflect server authorization policy, not only a mistyped credential. Other connection errors display their reason and offer **Edit saved host**.
+
+## Encrypted session logs
+
+Enable **Record encrypted session logs** in a host's connection editor. It defaults to off and applies to new sessions. Harbor records remote terminal output, encrypted connection metadata, timestamps, and a close reason. Raw keystrokes and authentication credentials are not recorded directly; commands or secrets echoed by the server can still appear in output. Logging starts after successful SSH authentication and the terminal displays an active recording indicator.
+
+Logs are stored outside the vault under the app data directory's `session-logs` folder. Filenames are random UUIDs and file contents are AES-256-GCM authenticated encrypted records. A protected key entry inside the KDBX vault derives a different key for each file using HKDF-SHA256 and a random salt. Records use unique counters and authenticated file IDs, salt, and sequence numbers. Do not delete the **Harbor session log encryption key** entry from the vault: without it, existing logs cannot be decrypted. Normal password changes retain this entry. A backup made before logging was first enabled does not contain the key.
+
+Open **Session logs** in the sidebar after unlocking the matching vault. Search, read a text preview, refresh, or explicitly delete saved files after closing SSH sessions. The viewer marks files without an authenticated end record as incomplete or still recording. Damaged or partial encrypted records fail validation. A truncated file ending exactly at a record boundary appears incomplete; the format cannot distinguish that from an interrupted recording. Text previews remove terminal escape sequences and limit displayed output to two million characters; full-screen terminal applications may show repeated screen updates.
+
+Each file has a 32 MiB limit. If encrypted logging fails or reaches that limit, the SSH session disconnects and reports the reason instead of silently dropping output. Automatic rotation, retention cleanup, replay, and export are not implemented yet. Copy the encrypted log files as well as the matching vault to back them up or move them to another device. Vault cloud sync does not automatically sync log files. Filesystem sizes and modification times remain visible to the operating system.
+
+## Known hosts and settings
+
+**Known hosts** shows every hostname, port, and trusted SHA-256 SSH fingerprint saved by Harbor on this device, across all vaults. Search by any of those fields. This is a read-only view; changed host keys remain blocked. It is separate from the operating system's OpenSSH `known_hosts` file.
+
+[Settings plan](SETTINGS_PLAN.md) outlines personalization, terminal preferences, connection defaults, security, logging/retention, and storage. Those broader preferences remain planned.
 
 ## Command snippets and host startup
 
@@ -156,3 +176,7 @@ Version 0.3.0 validation adds encrypted-key and OpenSSH-certificate SSH logins a
 Version 0.4.0 validation covers legacy SQLite upgrades, group/tag portability, native KDBX tag reads and edits with the independent kdbxweb library, and tag validation. Browser UI checks cover combined filters, tag search, and editing a host's group and tags.
 
 Version 0.5.0 validation covers encrypted snippet CRUD, portable startup references, deletion protection, control-character rejection, and startup delivery exactly once before user input against a loopback SSH server.
+
+Version 0.6.0 validation covers encrypted log roundtrips, corruption and truncation detection, wrong-key and renamed-file rejection, logging opt-in and key portability, and encrypted output capture in the loopback SSH integration test.
+
+Login retry validation uses a loopback SSH server to reject saved credentials, request corrected credentials, connect successfully with temporary overrides, preserve the original saved credentials, and verify that failed authentication creates no session log.

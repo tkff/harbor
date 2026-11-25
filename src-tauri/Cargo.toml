@@ -1,6 +1,6 @@
 [package]
 name = "harbor"
-version = "0.5.0"
+version = "0.6.0"
 description = "A local-first SSH workspace with a KeePass-compatible vault"
 edition = "2021"
 license = "MIT"
@@ -30,6 +30,7 @@ tempfile = "3"
 anyhow = "1"
 rust-argon2 = "3"
 aes-gcm = "0.10"
+hkdf = "0.12"
 getrandom = "0.4"
 
 [target.'cfg(windows)'.dependencies]

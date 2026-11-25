@@ -20,3 +20,4 @@ id_ecdsa
 !.env.example
 .DS_Store
 *.tsbuildinfo
+*.hlog

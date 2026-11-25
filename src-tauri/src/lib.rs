@@ -1,6 +1,7 @@
 mod auth;
 mod forwarding;
 mod hello;
+mod session_logs;
 mod ssh;
 mod storage;
 
@@ -109,6 +110,60 @@ async fn delete_snippet(
     let store = state.store.clone();
     tauri::async_runtime::spawn_blocking(move || {
         store.lock().unwrap().delete_snippet(&id).map_err(message)
+    })
+    .await
+    .map_err(message)?
+}
+
+#[tauri::command]
+fn known_hosts(state: State<AppState>) -> Result<Vec<storage::KnownHost>, String> {
+    state.store.lock().unwrap().known_hosts().map_err(message)
+}
+#[tauri::command]
+async fn list_session_logs(
+    state: State<'_, AppState>,
+) -> Result<Vec<session_logs::ListItem>, String> {
+    let store = state.store.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let store = store.lock().unwrap();
+        match store.log_access().map_err(message)? {
+            Some(access) => session_logs::list(&access).map_err(message),
+            None => Ok(vec![]),
+        }
+    })
+    .await
+    .map_err(message)?
+}
+#[tauri::command]
+async fn read_session_log(
+    state: State<'_, AppState>,
+    id: String,
+) -> Result<session_logs::SavedLog, String> {
+    let store = state.store.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let store = store.lock().unwrap();
+        let access = store
+            .log_access()
+            .map_err(message)?
+            .ok_or("This vault has no session log key")?;
+        session_logs::read(&access, &id).map_err(message)
+    })
+    .await
+    .map_err(message)?
+}
+#[tauri::command]
+async fn delete_session_log(state: State<'_, AppState>, id: String) -> Result<(), String> {
+    if state.ssh.has_sessions() {
+        return Err("Close SSH sessions before deleting logs".into());
+    }
+    let store = state.store.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let store = store.lock().unwrap();
+        let access = store
+            .log_access()
+            .map_err(message)?
+            .ok_or("This vault has no session log key")?;
+        session_logs::delete(&access, &id).map_err(message)
     })
     .await
     .map_err(message)?
@@ -263,16 +318,17 @@ async fn ssh_connect(
     cols: u32,
     rows: u32,
     events: Channel<ssh::Event>,
+    credentials: Option<ssh::LoginCredentials>,
 ) -> Result<(), String> {
     state
         .ssh
-        .connect(
+        .connect_with_credentials(
             session_id,
             profile_id,
-            cols,
-            rows,
+            (cols, rows),
             state.store.clone(),
             events,
+            credentials,
         )
         .await
         .map_err(|e| format!("{e:#}"))
@@ -347,6 +403,10 @@ pub fn run() {
             lock_vault,
             save_connection,
             list_snippets,
+            known_hosts,
+            list_session_logs,
+            read_session_log,
+            delete_session_log,
             save_snippet,
             delete_snippet,
             delete_connection,

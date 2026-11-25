@@ -20,6 +20,7 @@ export type Profile = {
   port: number;
   folder: string;
   startupSnippet: string | null;
+  sessionLogging: boolean;
   tags: string[];
   forwards: ForwardRule[];
   authMethod: "password" | "privateKey" | "certificate";
@@ -49,6 +50,11 @@ export type SshEvent =
   | { type: "hostKey"; host: string; port: number; fingerprint: string }
   | { type: "connected" }
   | {
+      type: "authenticationFailed";
+      username: string;
+      method: Profile["authMethod"];
+    }
+  | {
       type: "forward";
       ruleId: string;
       state: ForwardStatus["state"];
@@ -70,3 +76,5 @@ export type Snippet = {
   tags: string[];
   body: string;
 };
+
+export type LoginCredentials = { username: string; password: string | null };
