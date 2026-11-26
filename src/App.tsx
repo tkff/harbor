@@ -764,7 +764,7 @@ export default function App() {
           <span>
             <Laptop size={12} />
             On this device<span className="status-separator">|</span>Harbor
-            v0.8.1
+            v0.8.2
           </span>
         </footer>
       </div>
@@ -888,7 +888,7 @@ export default function App() {
             <div className="modal-icon">
               <Anchor size={26} />
             </div>
-            <div className="eyebrow">HARBOR · VERSION 0.8.1</div>
+            <div className="eyebrow">HARBOR · VERSION 0.8.2</div>
             <h2 id="about-title">A workspace you own.</h2>
             <p>
               Harbor stores credentials in a password-protected KeePass KDBX

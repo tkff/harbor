@@ -2098,3 +2098,28 @@ button.primary:hover {
     gap: 12px;
   }
 }
+
+.terminal-pane {
+  position: relative;
+}
+.terminal-copy-status {
+  position: absolute;
+  right: 20px;
+  top: 50px;
+  z-index: 8;
+  border: 1px solid #54867b;
+  background: #213d37;
+  color: #d6f1e8;
+  padding: 10px 14px;
+  border-radius: 6px;
+  font-size: 12px;
+  max-width: min(420px, 80%);
+  overflow-wrap: anywhere;
+  box-shadow: 0 4px 15px #0003;
+  pointer-events: none;
+}
+.terminal-copy-status.is-error {
+  background: #4b2e2a;
+  border-color: #996559;
+  color: #ffded5;
+}

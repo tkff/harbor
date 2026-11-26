@@ -2,7 +2,7 @@
 
 A local-first desktop SSH workspace built with Tauri 2, React, TypeScript, Rust, russh, and xterm.js. Open source under MIT. Harbor is a working name.
 
-## Version 0.8.1 alpha
+## Version 0.8.2 alpha
 
 - Create or unlock a password-protected KeePass KDBX vault.
 - Add, edit, search, organize, and delete saved SSH connections.
@@ -206,3 +206,9 @@ Version 0.8.0 separates encrypted connection history from terminal recordings, a
 Version 0.8.1 adds a prominent connection-failure panel for timeouts, unreachable hosts, refused connections, and other failed setup attempts. It shows the complete error plus Edit host and Retry connection. Retrying after editing uses the latest saved host settings.
 
 The timeout recovery UI was checked through Edit host, changing hostname and port, saving, and retrying successfully with the corrected values. Retried connections retain the active terminal tab.
+
+## Copying terminal text
+
+Select output with the mouse, then use the terminal toolbar's **Copy** button, **Ctrl+C**, **Ctrl+Shift+C**, or **Cmd+C** on macOS. Copy works in connected and closed tabs. With no selection, Ctrl+C retains its normal remote interrupt behavior. In mouse-aware applications such as tmux or Vim, hold Shift while dragging to select text locally. The Copy button is enabled when text is selected and shows success or an error without closing the SSH session. Harbor uses Tauri's native text clipboard API with write-only permission; it does not read or automatically copy clipboard contents. Existing paste behavior is unchanged.
+
+Version 0.8.2 validation covers copy/interrupt shortcut routing, multiline mouse selection followed by Copy and paste into a text field, native clipboard plugin registration and write-only permissions, plus the backend and KDBX compatibility suites.

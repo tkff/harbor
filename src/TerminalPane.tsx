@@ -1,11 +1,13 @@
 import { terminalOptions, type Preferences } from "./preferences";
+import { copyTerminalText } from "./clipboard";
+import { isTerminalCopyKey, isTerminalInterruptKey } from "./terminalKeys";
 import Snippets from "./Snippets";
 import ForwardingPanel from "./ForwardingPanel";
 import { useEffect, useRef, useState } from "react";
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import "@xterm/xterm/css/xterm.css";
-import { ShieldCheck, Unplug, Network, Code2 } from "lucide-react";
+import { ShieldCheck, Unplug, Network, Code2, Copy } from "lucide-react";
 import {
   Channel,
   invoke,
@@ -41,6 +43,38 @@ export default function TerminalPane({
   const scheduleFit = useRef<(sync?: boolean, revealBottom?: boolean) => void>(
     () => {},
   );
+  const [hasSelection, setHasSelection] = useState(false);
+  const [copyStatus, setCopyStatus] = useState<{
+    error: boolean;
+    text: string;
+  } | null>(null);
+  const copyTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const copyAlive = useRef(true);
+  useEffect(() => {
+    copyAlive.current = true;
+    return () => {
+      copyAlive.current = false;
+      if (copyTimer.current) clearTimeout(copyTimer.current);
+    };
+  }, []);
+  const copySelection = async () => {
+    const text = terminal.current?.getSelection();
+    if (!text) return;
+    try {
+      await copyTerminalText(text);
+      if (copyAlive.current)
+        setCopyStatus({ error: false, text: "Copied to clipboard" });
+    } catch (e) {
+      if (copyAlive.current)
+        setCopyStatus({ error: true, text: `Could not copy: ${errorText(e)}` });
+    }
+    if (copyAlive.current) {
+      if (copyTimer.current) clearTimeout(copyTimer.current);
+      copyTimer.current = setTimeout(() => setCopyStatus(null), 4000);
+    }
+  };
+  const copyCallback = useRef(copySelection);
+  copyCallback.current = copySelection;
   const [hostKey, setHostKey] = useState<HostKey | null>(null);
   const [authFailure, setAuthFailure] = useState<Extract<
     SshEvent,
@@ -76,6 +110,23 @@ export default function TerminalPane({
     term.loadAddon(fitter);
     terminal.current = term;
     term.open(mount.current!);
+    const selection = term.onSelectionChange(() => {
+      if (alive) setHasSelection(term.hasSelection());
+    });
+    term.attachCustomKeyEventHandler((event) => {
+      if (isTerminalInterruptKey(event, term.hasSelection())) {
+        event.preventDefault();
+        event.stopPropagation();
+        if (event.type === "keydown") term.input("\x03", true);
+        return false;
+      }
+      if (!isTerminalCopyKey(event, term.hasSelection())) return true;
+      event.preventDefault();
+      event.stopPropagation();
+      if (event.type === "keydown" && !event.repeat)
+        void copyCallback.current();
+      return false;
+    });
     let fitFrame = 0;
     let syncSize = false;
     let revealBottom = false;
@@ -184,6 +235,7 @@ export default function TerminalPane({
       observer.disconnect();
       cancelAnimationFrame(fitFrame);
       scheduleFit.current = () => {};
+      selection.dispose();
       data.dispose();
       resize.dispose();
       term.dispose();
@@ -248,6 +300,16 @@ export default function TerminalPane({
         </span>
         <button
           className="forward-toggle"
+          disabled={!hasSelection}
+          onMouseDown={(event) => event.preventDefault()}
+          onClick={() => void copySelection()}
+          title="Copy selected text (Ctrl+C, Ctrl+Shift+C, or Cmd+C). Hold Shift while selecting in mouse-aware terminal apps."
+          aria-label="Copy selected terminal text"
+        >
+          <Copy size={13} /> Copy
+        </button>
+        <button
+          className="forward-toggle"
           onClick={() => setShowForwards((v) => !v)}
           aria-expanded={showForwards}
         >
@@ -280,6 +342,14 @@ export default function TerminalPane({
           </>
         )}
       </div>
+      {copyStatus && (
+        <div
+          className={`terminal-copy-status ${copyStatus.error ? "is-error" : ""}`}
+          role={copyStatus.error ? "alert" : "status"}
+        >
+          {copyStatus.text}
+        </div>
+      )}
       {connectionFailure && !(authFailure && retryOpen) && (
         <div className="connection-failure" role="alert">
           <div>
