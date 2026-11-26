@@ -10,6 +10,16 @@
 - [ ] Test successful authentication, wrong PIN, missing key, canceled prompts, and server rejection.
 - [ ] Keep website passkeys separate from SSH security-key support; document exactly which authenticators and SSH identities are supported.
 
+## SSH ID-inspired identity management (deferred)
+
+For future consideration only. The user explicitly requested no implementation; do not begin this work without a new request.
+
+- Consider reusable identities assigned to multiple hosts, device-bound SSH keys, and platform biometric approval separate from vault unlocking.
+- Keep portable metadata and public keys in KDBX; device-bound private keys stay on their device or authenticator. Plan enrollment and recovery across devices.
+- Consider optional public-key bundle export or publishing to user-controlled storage, without requiring Termius or a Harbor account.
+- Public-key retrieval alone does not enable authentication. Removing a published key does not revoke keys already installed on servers; plan explicit server-key removal.
+- Reference: https://docs.termius.com/ssh-id-passkeys-for-ssh/what-is-ssh-id
+
 ## Telnet connections
 
 - [ ] Add Telnet as a connection type with saved hostname and port settings.
