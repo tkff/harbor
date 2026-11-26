@@ -15,12 +15,14 @@ use tokio::{
     task::JoinSet,
 };
 use tokio_util::sync::CancellationToken;
+mod socks;
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash)]
 #[serde(rename_all = "camelCase")]
 pub enum Direction {
     Local,
     Remote,
+    Dynamic,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -30,7 +32,9 @@ pub struct Rule {
     pub direction: Direction,
     pub bind_address: String,
     pub bind_port: u16,
+    #[serde(default)]
     pub target_host: String,
+    #[serde(default)]
     pub target_port: u16,
     pub auto_start: bool,
 }
@@ -55,26 +59,63 @@ pub fn validate(rules: &[Rule]) -> Result<()> {
             bail!("Duplicate forwarding rule identifier");
         }
         let address = bind_address(&r.bind_address);
-        address
+        let ip = address
             .parse::<IpAddr>()
             .context("Listen address must be an IP address or localhost")?;
-        if r.bind_port == 0 || r.target_port == 0 {
+        if r.direction == Direction::Dynamic && !ip.is_loopback() {
+            bail!("SOCKS proxies must listen on a loopback address (127.0.0.1 or ::1)");
+        }
+        if r.bind_port == 0 || (r.direction != Direction::Dynamic && r.target_port == 0) {
             bail!("Forwarding ports must be between 1 and 65535");
         }
-        if !binds.insert((r.direction, address, r.bind_port)) {
-            bail!("Two rules cannot listen on the same address and port in the same direction");
+        if !binds.insert((r.direction == Direction::Remote, address, r.bind_port)) {
+            bail!("Two rules cannot listen on the same address and port on the same side of SSH");
         }
-        if r.target_host.is_empty()
-            || r.target_host.len() > 253
-            || r.target_host
-                .chars()
-                .any(|c| c.is_whitespace() || c.is_control())
-            || r.target_host.contains('/')
+        if r.direction != Direction::Dynamic
+            && (r.target_host.is_empty()
+                || r.target_host.len() > 253
+                || r.target_host
+                    .chars()
+                    .any(|c| c.is_whitespace() || c.is_control())
+                || r.target_host.contains('/'))
         {
             bail!("Enter a forwarding destination hostname or IP without a protocol or path");
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn socks_is_loopback_only_and_shares_local_listen_ports() -> Result<()> {
+        let mut dynamic = Rule {
+            id: uuid::Uuid::new_v4().to_string(),
+            direction: Direction::Dynamic,
+            bind_address: "127.0.0.1".into(),
+            bind_port: 1080,
+            target_host: String::new(),
+            target_port: 0,
+            auto_start: false,
+        };
+        for addr in ["127.0.0.1", "::1", "localhost"] {
+            dynamic.bind_address = addr.into();
+            validate(&[dynamic.clone()])?;
+        }
+        dynamic.bind_address = "0.0.0.0".into();
+        assert!(validate(&[dynamic.clone()]).is_err());
+        dynamic.bind_address = "127.0.0.1".into();
+        let mut local = dynamic.clone();
+        local.id = uuid::Uuid::new_v4().to_string();
+        local.direction = Direction::Local;
+        local.target_host = "example.test".into();
+        local.target_port = 80;
+        assert!(validate(&[dynamic.clone(), local.clone()]).is_err());
+        local.direction = Direction::Remote;
+        validate(&[dynamic, local])?;
+        Ok(())
+    }
 }
 
 #[derive(Clone)]
@@ -198,6 +239,49 @@ fn report(events: &Channel<Event>, rule: &Rule, state: &str, message: Option<Str
     });
 }
 
+async fn relay_local(
+    tcp: &mut TcpStream,
+    peer: std::net::SocketAddr,
+    rule: &Rule,
+    handle: &client::Handle<Verify>,
+) -> Result<()> {
+    let setup = async {
+        let (host, port) = if rule.direction == Direction::Dynamic {
+            socks::request(tcp).await?
+        } else {
+            (rule.target_host.clone(), rule.target_port)
+        };
+        match handle
+            .channel_open_direct_tcpip(
+                host,
+                u32::from(port),
+                peer.ip().to_string(),
+                u32::from(peer.port()),
+            )
+            .await
+        {
+            Ok(channel) => {
+                if rule.direction == Direction::Dynamic {
+                    socks::reply(tcp, 0).await?;
+                }
+                Ok::<_, anyhow::Error>(channel)
+            }
+            Err(error) => {
+                if rule.direction == Direction::Dynamic {
+                    let _ = socks::reply(tcp, 1).await;
+                }
+                Err(error.into())
+            }
+        }
+    };
+    let channel = tokio::time::timeout(Duration::from_secs(10), setup)
+        .await
+        .context("Forward destination request timed out")??;
+    let mut stream = channel.into_stream();
+    tokio::io::copy_bidirectional(tcp, &mut stream).await?;
+    Ok(())
+}
+
 impl Tunnels {
     pub fn new(
         handle: Arc<client::Handle<Verify>>,
@@ -264,7 +348,7 @@ impl Tunnels {
         let mut listener_task = None;
         let result:Result<()>=async {
             match rule.direction {
-                Direction::Local => {
+                Direction::Local | Direction::Dynamic => {
                     let listener=TcpListener::bind((bind_address(&rule.bind_address).as_str(),rule.bind_port)).await.context("Could not open the local listening port")?;
                     let handle=self.handle.clone(); let token=cancel.clone(); let rule=rule.clone(); let events=self.events.clone();
                     listener_task=Some(tokio::spawn(async move {
@@ -284,13 +368,7 @@ impl Tunnels {
                                     let handle=handle.clone(); let rule=rule.clone(); let events=events.clone();
                                     transfers.spawn(async move {
                                         let _permit=permit;
-                                        let open=tokio::time::timeout(Duration::from_secs(10),handle.channel_open_direct_tcpip(rule.target_host.clone(),u32::from(rule.target_port),peer.ip().to_string(),u32::from(peer.port()))).await;
-                                        let result:Result<()>=async {
-                                            let channel=open.context("Forward destination request timed out")??;
-                                            let mut stream=channel.into_stream();
-                                            tokio::io::copy_bidirectional(&mut tcp,&mut stream).await?;
-                                            Ok(())
-                                        }.await;
+                                        let result = relay_local(&mut tcp, peer, &rule, &handle).await;
                                         if let Err(e)=result { report(&events,&rule,"active",Some(format!("Destination connection failed: {e:#}"))); }
                                     });
                                 }

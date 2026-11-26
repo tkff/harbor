@@ -34,8 +34,8 @@ export default function ForwardingPanel({
       </p>
       {!rules.length && (
         <div className="forward-empty">
-          No rules saved. Edit the connection, add a local or remote forwarding
-          rule, then reconnect.
+          No rules saved. Edit the connection, add a local, remote, or SOCKS5
+          forwarding rule, then reconnect.
         </div>
       )}
       {rules.map((rule) => {
@@ -47,7 +47,13 @@ export default function ForwardingPanel({
         return (
           <div className="forward-runtime-rule" key={rule.id}>
             <div className="forward-runtime-heading">
-              <strong>{rule.direction === "local" ? "Local" : "Remote"}</strong>
+              <strong>
+                {rule.direction === "dynamic"
+                  ? "SOCKS5 proxy"
+                  : rule.direction === "local"
+                    ? "Local"
+                    : "Remote"}
+              </strong>
               <span className={`forward-state ${state.state}`}>
                 {state.state}
               </span>
@@ -58,13 +64,17 @@ export default function ForwardingPanel({
               </code>
               <ArrowRight size={13} />
               <code>
-                {rule.targetHost}:{rule.targetPort}
+                {rule.direction === "dynamic"
+                  ? "Client-selected destination"
+                  : `${rule.targetHost}:${rule.targetPort}`}
               </code>
             </div>
             <p>
-              {rule.direction === "local"
-                ? "This computer → SSH server destination"
-                : "SSH server → this computer’s destination"}
+              {rule.direction === "dynamic"
+                ? "Local SOCKS5 - TCP only, no proxy password. Hostnames are resolved through SSH."
+                : rule.direction === "local"
+                  ? "This computer → SSH server destination"
+                  : "SSH server → this computer’s destination"}
             </p>
             {state.message && (
               <div className="forward-runtime-error" role="status">
@@ -90,8 +100,12 @@ export default function ForwardingPanel({
       <div className="forward-future">
         <Network size={15} />
         <div>
-          <strong>Dynamic / SOCKS proxy</strong>
-          <p>Coming in a future version</p>
+          <strong>SOCKS5 application setup</strong>
+          <p>
+            Use the proxy listen address and port in your application. Enable
+            proxy DNS or use socks5h to resolve names through SSH. UDP is not
+            supported.
+          </p>
         </div>
       </div>
     </aside>

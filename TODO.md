@@ -34,8 +34,17 @@ For future consideration only. The user explicitly requested no implementation; 
 - [ ] Support interactive terminal input/output, line-ending selection, and reconnecting disconnected devices.
 - [ ] Support the existing connection history and optional encrypted terminal recordings.
 
+## Dynamic SOCKS forwarding (implemented in v0.11.0)
+
+- [x] Save SOCKS5 proxy rules alongside local and remote forwarding rules.
+- [x] Support TCP CONNECT with IPv4, IPv6, and remote hostname resolution.
+- [x] Start/stop proxies per SSH session, including automatic startup and cancellation on close/lock.
+- [x] Restrict unauthenticated proxies to loopback addresses; bound connections and negotiation time.
+- [x] Test negotiation, rejected requests, binary transfers, remote DNS, and cleanup.
+- SOCKS4, proxy passwords, BIND, and UDP remain unsupported.
+
 ## Other planned work
 
-See [SETTINGS_PLAN.md](SETTINGS_PLAN.md) for remaining preference, locking, log retention/rotation, and sync work. Dynamic SOCKS forwarding, SFTP and split panes are also planned.
+See [SETTINGS_PLAN.md](SETTINGS_PLAN.md) for remaining preference, locking, log retention/rotation, and sync work. SFTP and split panes are also planned.
 
 Local PTY terminals are implemented. Planned improvements: custom shell selection, local snippets, and encrypted local session recording.

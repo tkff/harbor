@@ -2,7 +2,7 @@ import { invoke, isTauri, Channel } from "@tauri-apps/api/core";
 export { invoke, isTauri, Channel };
 export type ForwardRule = {
   id: string;
-  direction: "local" | "remote";
+  direction: "local" | "remote" | "dynamic";
   bindAddress: string;
   bindPort: number;
   targetHost: string;

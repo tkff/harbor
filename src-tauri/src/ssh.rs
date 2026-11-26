@@ -101,7 +101,17 @@ mod tests {
             reply: server::ChannelOpenHandle,
             _: &mut server::Session,
         ) -> std::result::Result<(), Self::Error> {
-            let host = host.to_string();
+            if host == "denied.harbor.invalid" {
+                reply.reject(russh::ChannelOpenFailure::ConnectFailed).await;
+                return Ok(());
+            }
+            // This test-only name deliberately cannot resolve on the client.
+            let host = if host == "remote-only.harbor.invalid" {
+                "127.0.0.1"
+            } else {
+                host
+            }
+            .to_string();
             tokio::spawn(async move {
                 if let Ok(mut tcp) =
                     tokio::net::TcpStream::connect((host.as_str(), port as u16)).await
@@ -816,10 +826,13 @@ mod tests {
             });
             let local_reservation=TcpListener::bind(("127.0.0.1",0)).await?;
             let remote_reservation=TcpListener::bind(("127.0.0.1",0)).await?;
+            let socks_reservation=TcpListener::bind(("127.0.0.1",0)).await?;
+            let socks_port=socks_reservation.local_addr()?.port();
             let local_port=local_reservation.local_addr()?.port();let remote_port=remote_reservation.local_addr()?.port();
             let rules=vec![
                 Rule {id:uuid::Uuid::new_v4().to_string(),direction:Direction::Local,bind_address:"127.0.0.1".into(),bind_port:local_port,target_host:"127.0.0.1".into(),target_port,auto_start:true},
                 Rule {id:uuid::Uuid::new_v4().to_string(),direction:Direction::Remote,bind_address:"127.0.0.1".into(),bind_port:remote_port,target_host:"127.0.0.1".into(),target_port,auto_start:false},
+                Rule {id:uuid::Uuid::new_v4().to_string(),direction:Direction::Dynamic,bind_address:"127.0.0.1".into(),bind_port:socks_port,target_host:String::new(),target_port:0,auto_start:false},
             ];
             let socket=TcpListener::bind(("127.0.0.1",0)).await?;let port=socket.local_addr()?.port();
             let config=Arc::new(server::Config {keys:vec![russh::keys::PrivateKey::random(&mut rand::rng(),russh::keys::Algorithm::Ed25519)?],auth_rejection_time:Duration::from_millis(5),..Default::default()});
@@ -832,7 +845,7 @@ mod tests {
             let profile=storage.save_profile(SaveProfile {id:None,name:"Forwarding test".into(),host:"127.0.0.1".into(),port,folder:"Tests".into(), startup_snippet: None, session_logging: false, session_logging_mode: None, connection_logging_mode: None, tags: vec![],username:"tester".into(),password:Some("ssh-test-password".into()),forwards:rules.clone(),authentication:None})?.profiles.remove(0);
             storage.trust_key("127.0.0.1",port,&fingerprint)?;
             let store=Arc::new(Mutex::new(storage));let manager=Manager::default();let(events,mut rx)=channel();
-            drop(local_reservation);drop(remote_reservation);
+            drop(local_reservation);drop(remote_reservation);drop(socks_reservation);
             manager.connect("tunnels".into(),profile.id,80,24,store.clone(),events).await?;
             loop {let e=rx.recv().await.context("No forwarding state")?;if e["type"]=="forward"&&e["ruleId"]==rules[0].id&&e["state"]=="active" {break;}}
             // A full binary payload and a TCP half-close must travel in both directions.
@@ -845,6 +858,35 @@ mod tests {
                 assert!(output==payload,"Forwarded payload content mismatch on port {port}");Ok(())
             }
             roundtrip(local_port).await?;
+            async fn socks_connect(port:u16,host:&str,target:u16)->Result<TcpStream> {
+                let mut tcp=TcpStream::connect(("127.0.0.1",port)).await?;
+                tcp.write_all(&[5,1,0]).await?;
+                let mut method=[0;2];tcp.read_exact(&mut method).await?;assert_eq!(method,[5,0]);
+                let mut packet=vec![5,1,0];
+                if let Ok(ip)=host.parse::<std::net::Ipv4Addr>() {packet.push(1);packet.extend(ip.octets());}
+                else {packet.extend([3,host.len()as u8]);packet.extend(host.as_bytes());}
+                packet.extend(target.to_be_bytes());tcp.write_all(&packet).await?;
+                let mut reply=[0;10];tcp.read_exact(&mut reply).await?;
+                anyhow::ensure!(reply[0]==5&&reply[1]==0,"SOCKS connection rejected: {:?}",reply);
+                Ok(tcp)
+            }
+            manager.forward("tunnels",rules[2].id.clone(),true).await?;
+            for host in ["127.0.0.1","remote-only.harbor.invalid"] {
+                let mut tcp=socks_connect(socks_port,host,target_port).await?;
+                let payload:Vec<u8>=(0..131072).map(|n|(n%256)as u8).collect();
+                tcp.write_all(&payload).await?;tcp.shutdown().await?;
+                let mut output=Vec::new();tcp.read_to_end(&mut output).await?;assert_eq!(output,payload);
+            }
+            assert!(socks_connect(socks_port,"denied.harbor.invalid",target_port).await.is_err());
+            let mut live_socks=socks_connect(socks_port,"127.0.0.1",target_port).await?;
+            live_socks.write_all(b"live").await?;let mut proof=[0;4];live_socks.read_exact(&mut proof).await?;assert_eq!(&proof,b"live");
+            let mut pending_socks=TcpStream::connect(("127.0.0.1",socks_port)).await?;pending_socks.write_all(&[5]).await?;
+            manager.forward("tunnels",rules[2].id.clone(),false).await?;
+            assert!(TcpStream::connect(("127.0.0.1",socks_port)).await.is_err());
+            let mut byte=[0];assert!(!matches!(live_socks.read(&mut byte).await,Ok(n)if n>0));
+            assert!(!matches!(pending_socks.read(&mut byte).await,Ok(n)if n>0));
+            manager.forward("tunnels",rules[2].id.clone(),true).await?;
+            let mut live_socks=socks_connect(socks_port,"127.0.0.1",target_port).await?;
             manager.forward("tunnels",rules[1].id.clone(),true).await?;
             roundtrip(remote_port).await?;
             let mut live=TcpStream::connect(("127.0.0.1",local_port)).await?;
@@ -872,6 +914,8 @@ mod tests {
             for _ in 0..40 {if TcpStream::connect(("127.0.0.1",remote_port)).await.is_err(){break;}tokio::time::sleep(Duration::from_millis(25)).await;}
             assert!(TcpStream::connect(("127.0.0.1",remote_port)).await.is_err());
             assert!(!matches!(live_remote.read(&mut byte).await,Ok(n)if n>0));
+            assert!(TcpStream::connect(("127.0.0.1",socks_port)).await.is_err());
+            assert!(!matches!(live_socks.read(&mut byte).await,Ok(n)if n>0));
             assert!(manager.forward("tunnels",rules[0].id.clone(),true).await.is_err());
             server_task.abort();echo_task.abort();
             Ok::<_,anyhow::Error>(())

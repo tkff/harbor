@@ -2,7 +2,7 @@
 
 A local-first desktop SSH workspace built with Tauri 2, React, TypeScript, Rust, russh, and xterm.js. Open source under MIT. Harbor is a working name.
 
-## Version 0.10.0 alpha
+## Version 0.11.0 alpha
 
 - Create or unlock a password-protected KeePass KDBX vault.
 - Add, edit, search, organize, and delete saved SSH connections.
@@ -16,7 +16,7 @@ A local-first desktop SSH workspace built with Tauri 2, React, TypeScript, Rust,
 - Save local and remote TCP forwarding rules with each connection, optionally start them on connect, and start or stop them from the terminal’s **Port forwarding** panel.
 - Stop listeners and existing forwarded connections when stopping a rule, closing its SSH session, or locking the vault.
 
-Dynamic forwarding / SOCKS proxy, cloud synchronization, FIDO / security-key SSH identities, passkeys, SFTP, split panes, automatic idle locking, and shared-credential selection are not implemented yet.
+Cloud synchronization, FIDO / security-key SSH identities, passkeys, SFTP, split panes, automatic idle locking, and shared-credential selection are not implemented yet.
 
 ## Try it
 
@@ -114,7 +114,7 @@ This is vault protection, not Windows Hello SSH authentication and not a website
 
 ## Port forwarding
 
-Edit or create a connection and choose **Add forwarding rule**. Choose **Local** or **Remote**, enter the listening address/port and destination host/port, and choose whether to start it with the SSH session. The default listen address is 127.0.0.1. Save and reconnect to apply edited rules to a new session.
+Edit or create a connection and choose **Add forwarding rule**. Choose **Local**, **Remote**, or **Dynamic / SOCKS5 proxy**, enter the listening address/port (and a destination for fixed local/remote rules), and choose whether to start it with the SSH session. The default listen address is 127.0.0.1. Save and reconnect to apply edited rules to a new session.
 
 | Direction | Listener runs on | Destination is reached from | Example |
 | --- | --- | --- | --- |
@@ -127,7 +127,9 @@ Rules are scoped to an SSH session. Two tabs cannot both bind the same local add
 
 Remote listen/cancel requests have a 10-second deadline. If a server fails to acknowledge one, Harbor closes the SSH session so an unconfirmed server-side listener cannot remain attached to a live session. If a server explicitly refuses cancellation, Harbor keeps the rule marked active with an error; close that SSH session to release it.
 
-Dynamic forwarding / SOCKS proxy remains a future feature. The direction selector and session panel identify it as planned; this version creates no SOCKS listener.
+**Dynamic / SOCKS5 proxy** creates a local SOCKS5 TCP proxy. Select a loopback listen address (127.0.0.1, ::1, or localhost), typically port 1080. Configure your browser or other application's SOCKS5 settings to use that address and port. Enable proxy DNS in the client, or use a `socks5h://127.0.0.1:1080` proxy URL, to send hostnames through SSH for resolution on the server. If the client resolves a hostname first, that DNS query happens locally.
+
+Dynamic rules do not have a fixed destination. SOCKS5 supports TCP CONNECT for IPv4, IPv6, and ASCII/punycode hostnames. SOCKS4, BIND, UDP, and proxy passwords are not supported. Proxies accept connections only on loopback. Other local applications can use them while running. SSH server forwarding policy still applies; SOCKS payloads are not captured in terminal session logs. Initial negotiation and channel opening have a combined 10-second timeout. Stopping a rule, closing SSH, or locking the vault closes its listener, pending handshakes, and established transfers.
 
 ## Development
 
@@ -224,3 +226,5 @@ Version 0.8.2 validation covers copy/interrupt shortcut routing, multiline mouse
 Version 0.9.0 adds local PTY terminals and nests Session logs under Connection history. Local terminal tests cover command execution, PTY resizing, final output before exit, pending cancellation, and closing a running shell. Windows tests passed; macOS/Linux builds were not run locally for this change.
 
 Version 0.10.0 unifies history and recording navigation, restores the host recording checkbox, adds managed tags, and automatically hides the sidebar in terminal tabs.
+
+Version 0.11.0 adds dynamic SOCKS5 TCP forwarding. Protocol tests cover address formats, fragmented and rejected requests; loopback SSH integration verifies binary half-close transfers, remote-only hostname resolution, stop/restart, and close/lock cleanup.

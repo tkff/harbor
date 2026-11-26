@@ -31,12 +31,18 @@ export default function ForwardingEditor({
               onChange={(e) =>
                 update(r.id, {
                   direction: e.target.value as ForwardRule["direction"],
+                  bindPort:
+                    e.target.value === "dynamic" && r.bindPort === 8080
+                      ? 1080
+                      : r.bindPort,
+                  targetHost: r.targetHost || "127.0.0.1",
+                  targetPort: r.targetPort || 80,
                 })
               }
             >
               <option value="local">Local forwarding</option>
               <option value="remote">Remote forwarding</option>
-              <option disabled>Dynamic / SOCKS — planned</option>
+              <option value="dynamic">Dynamic / SOCKS5 proxy</option>
             </select>
             <button
               type="button"
@@ -48,14 +54,16 @@ export default function ForwardingEditor({
             </button>
           </div>
           <p className="forward-explanation">
-            {r.direction === "local"
-              ? "Listen on this computer → destination reached from the SSH server."
-              : "Listen on the SSH server → destination reached from this computer."}
+            {r.direction === "dynamic"
+              ? "Local SOCKS5 proxy: applications choose destinations reached through the SSH server."
+              : r.direction === "local"
+                ? "Listen on this computer → destination reached from the SSH server."
+                : "Listen on the SSH server → destination reached from this computer."}
           </p>
           <div className="forward-fields">
             <div>
               <label htmlFor={`${r.id}-bind`}>
-                {r.direction === "local" ? "Local" : "Server"} listen address
+                {r.direction === "remote" ? "Server" : "Local"} listen address
               </label>
               <input
                 id={`${r.id}-bind`}
@@ -79,32 +87,41 @@ export default function ForwardingEditor({
                 required
               />
             </div>
-            <div>
-              <label htmlFor={`${r.id}-target`}>Destination host</label>
-              <input
-                id={`${r.id}-target`}
-                value={r.targetHost}
-                placeholder="127.0.0.1"
-                onChange={(e) => update(r.id, { targetHost: e.target.value })}
-                required
-              />
-            </div>
-            <div>
-              <label htmlFor={`${r.id}-target-port`}>Destination port</label>
-              <input
-                id={`${r.id}-target-port`}
-                type="number"
-                min="1"
-                max="65535"
-                value={r.targetPort || ""}
-                onChange={(e) =>
-                  update(r.id, { targetPort: Number(e.target.value) })
-                }
-                required
-              />
-            </div>
+            {r.direction !== "dynamic" && (
+              <>
+                <div>
+                  <label htmlFor={`${r.id}-target`}>Destination host</label>
+                  <input
+                    id={`${r.id}-target`}
+                    value={r.targetHost}
+                    placeholder="127.0.0.1"
+                    onChange={(e) =>
+                      update(r.id, { targetHost: e.target.value })
+                    }
+                    required
+                  />
+                </div>
+                <div>
+                  <label htmlFor={`${r.id}-target-port`}>
+                    Destination port
+                  </label>
+                  <input
+                    id={`${r.id}-target-port`}
+                    type="number"
+                    min="1"
+                    max="65535"
+                    value={r.targetPort || ""}
+                    onChange={(e) =>
+                      update(r.id, { targetPort: Number(e.target.value) })
+                    }
+                    required
+                  />
+                </div>
+              </>
+            )}
           </div>
-          {r.bindAddress &&
+          {r.direction !== "dynamic" &&
+            r.bindAddress &&
             !["127.0.0.1", "::1", "localhost"].includes(r.bindAddress) && (
               <p className="field-hint forward-exposure">
                 This listen address may allow connections from other computers.
@@ -145,7 +162,10 @@ export default function ForwardingEditor({
         <ArrowRight size={13} />
       </button>
       <p className="field-hint">
-        Dynamic forwarding / SOCKS proxy is planned for a future version.
+        SOCKS5 proxies listen only on this computer's loopback addresses and do
+        not require a proxy password. TCP CONNECT only; UDP is not supported.
+        Configure your application to send hostnames through the proxy for
+        remote DNS.
       </p>
     </section>
   );
