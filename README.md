@@ -8,7 +8,7 @@ A local-first desktop SSH workspace built with Tauri 2, React, TypeScript, Rust,
 - Add, edit, search, organize, and delete saved SSH connections.
 - Store usernames and passwords in KDBX, never in the local SQLite index.
 - Connect through SSH password, imported private-key, or OpenSSH user-certificate authentication with interactive xterm.js terminals.
-- Open multiple terminal tabs; send keyboard input, paste, and resize the remote terminal.
+- Open multiple SSH or local shell tabs; send keyboard input, paste, and resize the terminal.
 - Approve an unknown server's SHA-256 fingerprint before sending credentials; block changed identities.
 - Lock the vault and close all sessions and pending connections.
 - Save encrypted backups and refuse to overwrite a vault changed by another application.
@@ -16,7 +16,7 @@ A local-first desktop SSH workspace built with Tauri 2, React, TypeScript, Rust,
 - Save local and remote TCP forwarding rules with each connection, optionally start them on connect, and start or stop them from the terminal’s **Port forwarding** panel.
 - Stop listeners and existing forwarded connections when stopping a rule, closing its SSH session, or locking the vault.
 
-Dynamic forwarding / SOCKS proxy, cloud synchronization, FIDO / security-key SSH identities, passkeys, SFTP, local shells, split panes, automatic idle locking, and shared-credential selection are not implemented yet.
+Dynamic forwarding / SOCKS proxy, cloud synchronization, FIDO / security-key SSH identities, passkeys, SFTP, split panes, automatic idle locking, and shared-credential selection are not implemented yet.
 
 ## Try it
 
@@ -32,6 +32,12 @@ Use a dedicated Harbor vault while this alpha is being evaluated. The Rust `keep
 
 Connection names, host addresses, ports, groups, tags, and forwarding rules are stored unencrypted in the local SQLite index. Usernames, passwords, imported private keys, their passphrases, and user certificates are stored inside KDBX. Terminal scrollback is held in memory while a tab is open. This version has manual locking; it does not automatically lock on idle or operating-system sleep.
 
+## Local terminals
+
+Choose **Local terminal** in the sidebar, or **+** in the tab bar, to open your computer's shell without unlocking a vault. Windows uses PowerShell 7 when available on PATH, otherwise Windows PowerShell. macOS/Linux use the configured `SHELL` (or `/bin/sh`). Shells start in your home directory with normal user permissions.
+
+Local terminals support keyboard input, resizing, terminal themes, and the same text-copy controls as SSH. Closing a tab ends its shell; **Lock vault & close sessions** also closes local terminals. Local sessions are labelled **not recorded**: connection history and encrypted session recording currently apply only to SSH. Custom shell selection, local snippets, and local recording remain planned.
+
 ## Settings and personalization
 
 Open **Settings** in the sidebar, including while the vault is locked. **Appearance** controls the app theme (system/light/dark), accent color, connection list density, and reduced motion. **Terminal** has a separate color scheme selector (Harbor dark, Paper light, High contrast), font presets/size, line height, cursor shape/blink, and scrollback. App and terminal themes are independent: a dark app can have a light terminal and vice versa.
@@ -46,7 +52,7 @@ When the SSH server rejects authentication, Harbor opens a credential prompt. Co
 
 ## Connection history and global logging defaults
 
-**Connection history** is enabled by default and records each attempt, successful authentication, established shells, failures, and disconnect reasons. It never records terminal output or raw keyboard input. Failed logins and unreachable hosts are recorded too. History is saved in separate encrypted files from terminal recordings, using the same protected vault log key. Opening **Connection history** in the sidebar shows the event timeline; **Session logs** shows terminal recordings.
+**Connection history** is enabled by default and records each attempt, successful authentication, established shells, failures, and disconnect reasons. It never records terminal output or raw keyboard input. Failed logins and unreachable hosts are recorded too. History is saved in separate encrypted files from terminal recordings, using the same protected vault log key. Opening **Connection history** in the sidebar shows the event timeline; **Session logs**, directly underneath Connection history, shows terminal recordings.
 
 **Settings > Logs** controls global defaults for connection history (on) and terminal recordings (off). Each host has independent **Use global default / On / Off** choices for both. These settings apply to new connections. Existing hosts retain their prior explicit terminal-recording choice; connection history inherits the global default. New hosts inherit both defaults. The protected log key is created in the vault when logging is first needed, so the vault must be writable for this first connection. Keep a current vault backup with that key.
 
@@ -212,3 +218,5 @@ The timeout recovery UI was checked through Edit host, changing hostname and por
 Select output with the mouse, then use the terminal toolbar's **Copy** button, **Ctrl+C**, **Ctrl+Shift+C**, or **Cmd+C** on macOS. Copy works in connected and closed tabs. With no selection, Ctrl+C retains its normal remote interrupt behavior. In mouse-aware applications such as tmux or Vim, hold Shift while dragging to select text locally. The Copy button is enabled when text is selected and shows success or an error without closing the SSH session. Harbor uses Tauri's native text clipboard API with write-only permission; it does not read or automatically copy clipboard contents. Existing paste behavior is unchanged.
 
 Version 0.8.2 validation covers copy/interrupt shortcut routing, multiline mouse selection followed by Copy and paste into a text field, native clipboard plugin registration and write-only permissions, plus the backend and KDBX compatibility suites.
+
+Version 0.9.0 adds local PTY terminals and nests Session logs under Connection history. Local terminal tests cover command execution, PTY resizing, final output before exit, pending cancellation, and closing a running shell. Windows tests passed; macOS/Linux builds were not run locally for this change.

@@ -140,7 +140,12 @@ export default function App() {
 
   const closeTab = (id: string) => {
     retryCredentials.current.delete(id);
-    void invoke("ssh_close", { sessionId: id }).catch(() => {});
+    void invoke(
+      sessions.find((s) => s.id === id)?.kind === "local"
+        ? "local_close"
+        : "ssh_close",
+      { sessionId: id },
+    ).catch(() => {});
     setSessions((prev) => prev.filter((s) => s.id !== id));
     setActiveId((current) =>
       current === id
@@ -151,6 +156,7 @@ export default function App() {
   const connect = (profile: Profile, credentials?: LoginCredentials) => {
     const session: Session = {
       id: crypto.randomUUID(),
+      kind: "ssh",
       profile: {
         ...profile,
         sessionLogging:
@@ -165,6 +171,37 @@ export default function App() {
     if (credentials) retryCredentials.current.set(session.id, credentials);
     setSessions((prev) => [...prev, session]);
     setActiveId(session.id);
+  };
+  const openLocal = async () => {
+    try {
+      const info = await invoke<{ name: string; program: string; cwd: string }>(
+        "local_info",
+      );
+      const session: Session = {
+        id: crypto.randomUUID(),
+        kind: "local",
+        state: "connecting",
+        profile: {
+          id: "local",
+          name: `Local ${info.name}`,
+          host: "This computer",
+          port: 0,
+          folder: "Local",
+          startupSnippet: null,
+          sessionLogging: false,
+          sessionLoggingMode: "off",
+          connectionLoggingMode: "off",
+          tags: [],
+          forwards: [],
+          authMethod: "password",
+          identity: null,
+        },
+      };
+      setSessions((prev) => [...prev, session]);
+      setActiveId(session.id);
+    } catch (e) {
+      setError(errorText(e));
+    }
   };
   const lock = async () => {
     try {
@@ -253,10 +290,26 @@ export default function App() {
         </button>
         <button
           className="nav-item"
+          disabled={!native || !settingsReady}
+          onClick={() => void openLocal()}
+        >
+          <Laptop size={17} />
+          <span>Local terminal</span>
+        </button>
+        <button
+          className="nav-item"
+          disabled={!status.unlocked}
+          onClick={() => setShowHistory(true)}
+        >
+          <FileText size={17} />
+          <span>Connection history</span>
+        </button>
+        <button
+          className="nav-item nav-sub-item"
           disabled={!status.unlocked}
           onClick={() => setShowLogs(true)}
         >
-          <FileText size={17} />
+          <FileText size={15} />
           <span>Session logs</span>
         </button>
         <button className="nav-item" onClick={() => setShowKnownHosts(true)}>
@@ -266,14 +319,6 @@ export default function App() {
         <button className="nav-item" onClick={() => setShowSettings(true)}>
           <Settings2 size={17} />
           <span>Settings</span>
-        </button>
-        <button
-          className="nav-item"
-          disabled={!status.unlocked}
-          onClick={() => setShowHistory(true)}
-        >
-          <FileText size={17} />
-          <span>Connection history</span>
         </button>
         <div className="host-organization">
           <div className="section-label">
@@ -418,8 +463,9 @@ export default function App() {
           ))}
           <button
             className="tab-plus"
-            aria-label="View connections"
-            onClick={() => setActiveId(null)}
+            aria-label="Open local terminal"
+            disabled={!native || !settingsReady}
+            onClick={() => void openLocal()}
           >
             <Plus size={15} />
           </button>
@@ -735,6 +781,10 @@ export default function App() {
               }}
               onReconnect={() => {
                 closeTab(session.id);
+                if (session.kind === "local") {
+                  void openLocal();
+                  return;
+                }
                 connect(
                   status.profiles.find((p) => p.id === session.profile.id) ??
                     session.profile,
@@ -764,7 +814,7 @@ export default function App() {
           <span>
             <Laptop size={12} />
             On this device<span className="status-separator">|</span>Harbor
-            v0.8.2
+            v0.9.0
           </span>
         </footer>
       </div>
@@ -888,7 +938,7 @@ export default function App() {
             <div className="modal-icon">
               <Anchor size={26} />
             </div>
-            <div className="eyebrow">HARBOR · VERSION 0.8.2</div>
+            <div className="eyebrow">HARBOR · VERSION 0.9.0</div>
             <h2 id="about-title">A workspace you own.</h2>
             <p>
               Harbor stores credentials in a password-protected KeePass KDBX

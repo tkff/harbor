@@ -1,6 +1,7 @@
 mod auth;
 mod forwarding;
 mod hello;
+mod local_terminal;
 mod session_logs;
 mod settings;
 mod ssh;
@@ -18,6 +19,7 @@ struct AppState {
     settings_path: std::path::PathBuf,
     store: Arc<Mutex<Storage>>,
     ssh: ssh::Manager,
+    local: local_terminal::Manager,
     vault_epoch: Arc<AtomicU64>,
 }
 fn message(e: impl std::fmt::Display) -> String {
@@ -88,6 +90,7 @@ fn lock_vault(state: State<AppState>) {
     let mut store = state.store.lock().unwrap();
     store.lock();
     state.ssh.close_all();
+    state.local.close_all();
 }
 
 #[tauri::command]
@@ -407,6 +410,58 @@ fn ssh_approve(state: State<AppState>, session_id: String, accepted: bool) -> Re
     state.ssh.approve(&session_id, accepted).map_err(message)
 }
 
+#[tauri::command]
+fn local_info() -> local_terminal::ShellInfo {
+    local_terminal::shell_info()
+}
+#[tauri::command]
+async fn local_start(
+    state: State<'_, AppState>,
+    session_id: String,
+    cols: u32,
+    rows: u32,
+    events: Channel<ssh::Event>,
+) -> Result<(), String> {
+    let local = state.local.clone();
+    let slot = local.reserve(&session_id).map_err(message)?;
+    tauri::async_runtime::spawn_blocking(move || {
+        local
+            .start(session_id, slot, cols, rows, events)
+            .map_err(|e| format!("{e:#}"))
+    })
+    .await
+    .map_err(message)?
+}
+#[tauri::command]
+async fn local_write(
+    state: State<'_, AppState>,
+    session_id: String,
+    data: Vec<u8>,
+) -> Result<(), String> {
+    let local = state.local.clone();
+    tauri::async_runtime::spawn_blocking(move || local.write(&session_id, &data).map_err(message))
+        .await
+        .map_err(message)?
+}
+#[tauri::command]
+async fn local_resize(
+    state: State<'_, AppState>,
+    session_id: String,
+    cols: u32,
+    rows: u32,
+) -> Result<(), String> {
+    let local = state.local.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        local.resize(&session_id, cols, rows).map_err(message)
+    })
+    .await
+    .map_err(message)?
+}
+#[tauri::command]
+fn local_close(state: State<AppState>, session_id: String) {
+    state.local.close(&session_id);
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -419,11 +474,25 @@ pub fn run() {
                 settings_path: dir.join("settings.json"),
                 store: Arc::new(Mutex::new(Storage::open(&dir.join("harbor.db"))?)),
                 ssh: ssh::Manager::default(),
+                local: local_terminal::Manager::default(),
                 vault_epoch: Arc::new(AtomicU64::new(0)),
             });
             Ok(())
         })
+        .on_window_event(|window, event| {
+            if matches!(event, tauri::WindowEvent::CloseRequested { .. }) {
+                if let Some(state) = window.try_state::<AppState>() {
+                    state.local.close_all();
+                    state.ssh.close_all();
+                }
+            }
+        })
         .invoke_handler(tauri::generate_handler![
+            local_info,
+            local_start,
+            local_write,
+            local_resize,
+            local_close,
             status,
             get_settings,
             save_settings,

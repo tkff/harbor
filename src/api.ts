@@ -65,6 +65,7 @@ export type SshEvent =
   | { type: "closed"; message: string };
 export type Session = {
   id: string;
+  kind: "ssh" | "local";
   profile: Profile;
   state: "connecting" | "connected" | "closed";
 };

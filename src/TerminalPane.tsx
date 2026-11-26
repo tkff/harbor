@@ -7,7 +7,14 @@ import { useEffect, useRef, useState } from "react";
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import "@xterm/xterm/css/xterm.css";
-import { ShieldCheck, Unplug, Network, Code2, Copy } from "lucide-react";
+import {
+  ShieldCheck,
+  Unplug,
+  Network,
+  Code2,
+  Copy,
+  Laptop,
+} from "lucide-react";
 import {
   Channel,
   invoke,
@@ -38,6 +45,8 @@ export default function TerminalPane({
   onEdit: () => void;
   onReconnect: () => void;
 }) {
+  const local = session.kind === "local";
+  const command = (action: string) => `${local ? "local" : "ssh"}_${action}`;
   const mount = useRef<HTMLDivElement>(null);
   const terminal = useRef<Terminal | null>(null);
   const scheduleFit = useRef<(sync?: boolean, revealBottom?: boolean) => void>(
@@ -84,7 +93,9 @@ export default function TerminalPane({
   const [connectionFailure, setConnectionFailure] = useState<string | null>(
     null,
   );
-  const [message, setMessage] = useState("Establishing a secure connection…");
+  const [message, setMessage] = useState(
+    local ? "Starting local shell..." : "Establishing a secure connection…",
+  );
   const [showForwards, setShowForwards] = useState(false);
   const [showSnippets, setShowSnippets] = useState(false);
   const [forwardStates, setForwardStates] = useState<
@@ -145,7 +156,7 @@ export default function TerminalPane({
         term.refresh(0, term.rows - 1);
         if (revealBottom) term.scrollToBottom();
         if (syncSize && connected)
-          void invoke("ssh_resize", {
+          void invoke(command("resize"), {
             sessionId: session.id,
             cols: term.cols,
             rows: term.rows,
@@ -180,7 +191,9 @@ export default function TerminalPane({
         setMessage("Waiting for server identity verification");
       } else if (event.type === "connected") {
         connected = true;
-        setMessage("Encrypted SSH session");
+        setMessage(
+          local ? "Local shell - not recorded" : "Encrypted SSH session",
+        );
         stateCallback.current(session.id, "connected");
         queueFit(true, true);
         term.focus();
@@ -207,31 +220,36 @@ export default function TerminalPane({
         queue = queue
           .then(async () => {
             if (alive && connected)
-              await invoke("ssh_write", { sessionId: session.id, data: chunk });
+              await invoke(command("write"), {
+                sessionId: session.id,
+                data: chunk,
+              });
           })
           .catch((e) => showClosed(errorText(e)));
       }
     });
     const resize = term.onResize(({ cols, rows }) => {
       if (connected)
-        void invoke("ssh_resize", { sessionId: session.id, cols, rows }).catch(
-          () => {},
-        );
+        void invoke(command("resize"), {
+          sessionId: session.id,
+          cols,
+          rows,
+        }).catch(() => {});
     });
     const observer = new ResizeObserver(() => queueFit());
     observer.observe(mount.current!);
-    void invoke("ssh_connect", {
+    void invoke(local ? "local_start" : "ssh_connect", {
       sessionId: session.id,
       profileId: session.profile.id,
       cols: term.cols,
       rows: term.rows,
       events,
-      credentials: takeCredentials(session.id),
+      credentials: local ? null : takeCredentials(session.id),
     }).catch((e) => showClosed(errorText(e)));
     return () => {
       alive = false;
       connected = false;
-      void invoke("ssh_close", { sessionId: session.id }).catch(() => {});
+      void invoke(command("close"), { sessionId: session.id }).catch(() => {});
       observer.disconnect();
       cancelAnimationFrame(fitFrame);
       scheduleFit.current = () => {};
@@ -288,11 +306,15 @@ export default function TerminalPane({
         <span>
           <span className={`status-dot ${session.state}`} />
           {session.profile.host}
-          <span className="dim">:{session.profile.port}</span>
+          {!local && <span className="dim">:{session.profile.port}</span>}
         </span>
         <span className="terminal-encryption">
           {session.state === "connected" ? (
-            <ShieldCheck size={13} />
+            local ? (
+              <Laptop size={13} />
+            ) : (
+              <ShieldCheck size={13} />
+            )
           ) : (
             <Unplug size={13} />
           )}
@@ -308,24 +330,28 @@ export default function TerminalPane({
         >
           <Copy size={13} /> Copy
         </button>
-        <button
-          className="forward-toggle"
-          onClick={() => setShowForwards((v) => !v)}
-          aria-expanded={showForwards}
-        >
-          <Network size={13} />
-          Port forwarding
-          <span>
-            {activeForwards}/{rules.length}
-          </span>
-        </button>
-        <button
-          className="forward-toggle"
-          disabled={session.state !== "connected"}
-          onClick={() => setShowSnippets(true)}
-        >
-          <Code2 size={13} /> Snippets
-        </button>
+        {!local && (
+          <button
+            className="forward-toggle"
+            onClick={() => setShowForwards((v) => !v)}
+            aria-expanded={showForwards}
+          >
+            <Network size={13} />
+            Port forwarding
+            <span>
+              {activeForwards}/{rules.length}
+            </span>
+          </button>
+        )}
+        {!local && (
+          <button
+            className="forward-toggle"
+            disabled={session.state !== "connected"}
+            onClick={() => setShowSnippets(true)}
+          >
+            <Code2 size={13} /> Snippets
+          </button>
+        )}
         {session.state === "closed" && (
           <>
             {authFailure && (
@@ -336,9 +362,15 @@ export default function TerminalPane({
                 Correct credentials
               </button>
             )}
-            <button className="forward-toggle" onClick={onEdit}>
-              Edit saved host
-            </button>
+            {local ? (
+              <button className="forward-toggle" onClick={onReconnect}>
+                Restart local terminal
+              </button>
+            ) : (
+              <button className="forward-toggle" onClick={onEdit}>
+                Edit saved host
+              </button>
+            )}
           </>
         )}
       </div>
@@ -353,19 +385,23 @@ export default function TerminalPane({
       {connectionFailure && !(authFailure && retryOpen) && (
         <div className="connection-failure" role="alert">
           <div>
-            <h3>Connection failed</h3>
+            <h3>
+              {local ? "Local terminal failed to start" : "Connection failed"}
+            </h3>
             <p className="connection-failure-target">
-              {session.profile.name} - {session.profile.host}:
-              {session.profile.port}
+              {session.profile.name}
+              {!local && ` - ${session.profile.host}:${session.profile.port}`}
             </p>
             <p className="connection-failure-reason">{connectionFailure}</p>
           </div>
           <div className="connection-failure-actions">
-            <button className="primary" onClick={onEdit}>
-              Edit host
-            </button>
+            {!local && (
+              <button className="primary" onClick={onEdit}>
+                Edit host
+              </button>
+            )}
             <button className="secondary" onClick={onReconnect}>
-              Retry connection
+              {local ? "Restart local terminal" : "Retry connection"}
             </button>
           </div>
         </div>

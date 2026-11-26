@@ -26,4 +26,6 @@
 
 ## Other planned work
 
-See [SETTINGS_PLAN.md](SETTINGS_PLAN.md) for remaining preference, locking, log retention/rotation, and sync work. Dynamic SOCKS forwarding, SFTP, local shells, and split panes are also planned.
+See [SETTINGS_PLAN.md](SETTINGS_PLAN.md) for remaining preference, locking, log retention/rotation, and sync work. Dynamic SOCKS forwarding, SFTP and split panes are also planned.
+
+Local PTY terminals are implemented. Planned improvements: custom shell selection, local snippets, and encrypted local session recording.

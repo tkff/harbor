@@ -2123,3 +2123,9 @@ button.primary:hover {
   border-color: #996559;
   color: #ffded5;
 }
+
+.nav-item.nav-sub-item {
+  padding-left: 35px;
+  font-size: 11px;
+  margin-top: -2px;
+}
