@@ -570,7 +570,8 @@ mod tests {
                 startup_snippet: Some(startup.id),
                 session_logging: true,
                 session_logging_mode: None,
-                connection_logging_mode: None,
+                // Global history must ignore a legacy per-host off override.
+                connection_logging_mode: Some("off".into()),
                 tags: vec![],
                 username: "saved-wrong-user".into(),
                 password: Some("saved-wrong-password".into()),
@@ -740,6 +741,32 @@ mod tests {
                 assert_eq!(hosts[0].port, port);
                 assert!(hosts[0].fingerprint.starts_with("SHA256:"));
             }
+            // A legacy per-host on override must also lose to global history off.
+            {
+                let mut storage = store.lock().unwrap();
+                storage.save_profile(serde_json::from_value(serde_json::json!({
+                    "id":profile_id,"name":"Loopback","host":"127.0.0.1","port":port,
+                    "folder":"Tests","username":"saved-wrong-user","password":null,
+                    "sessionLogging":true,"connectionLoggingMode":"on"
+                }))?)?;
+            }
+            let (events, mut rx) = channel();
+            assert!(manager
+                .connect_with_logging(
+                    "history-off".into(),
+                    profile_id.clone(),
+                    (80, 24),
+                    store.clone(),
+                    events,
+                    (None, false, false)
+                )
+                .await
+                .is_err());
+            while rx.recv().await.context("Missing history-off close event")?["type"] != "closed" {}
+            assert_eq!(
+                crate::session_logs::list(&store.lock().unwrap().log_access()?.unwrap())?.len(),
+                3
+            );
             // A changed pinned identity must fail before authentication.
             store
                 .lock()
@@ -1068,8 +1095,9 @@ impl Manager {
                     _ => default,
                 };
                 let session_enabled = enabled(&profile.session_logging_mode, session_default);
-                let connection_enabled =
-                    enabled(&profile.connection_logging_mode, connection_default);
+                // Connection history is controlled only by the global preference.
+                // Legacy per-host overrides are retained in old vaults but ignored.
+                let connection_enabled = connection_default;
                 let access = if session_enabled || connection_enabled {
                     Some(storage.prepare_log_access()?)
                 } else {

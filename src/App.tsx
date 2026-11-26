@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { open, save } from "@tauri-apps/plugin-dialog";
 import {
   Anchor,
+  PanelLeft,
   Settings2,
   Code2,
   FileText,
@@ -47,6 +48,7 @@ import AuthenticationFields, {
 import VaultSecurity from "./VaultSecurity";
 import Snippets from "./Snippets";
 import SessionLogs from "./SessionLogs";
+import TagsManager from "./TagsManager";
 import KnownHosts from "./KnownHosts";
 import Settings from "./Settings";
 import { defaultPreferences, type Preferences } from "./preferences";
@@ -81,7 +83,9 @@ export default function App() {
   const [help, setHelp] = useState(false);
   const [vaultSecurity, setVaultSecurity] = useState(false);
   const [showSnippets, setShowSnippets] = useState(false);
-  const [showLogs, setShowLogs] = useState(false);
+  const [showTags, setShowTags] = useState(false);
+  const [managedTags, setManagedTags] = useState<string[]>([]);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
   const [showKnownHosts, setShowKnownHosts] = useState(false);
   const retryCredentials = useRef(new Map<string, LoginCredentials>());
@@ -126,7 +130,34 @@ export default function App() {
     () => [...new Set(status.profiles.map((p) => p.folder))].sort(),
     [status.profiles],
   );
-  const tags = [...new Set(status.profiles.flatMap((p) => p.tags))].sort();
+  const tags = [
+    ...new Set([...managedTags, ...status.profiles.flatMap((p) => p.tags)]),
+  ].sort();
+  useEffect(() => {
+    setSidebarCollapsed(!!activeId);
+  }, [activeId]);
+  useEffect(() => {
+    let alive = true;
+    if (status.unlocked)
+      void invoke<string[]>("list_tags")
+        .then((items) => {
+          if (alive) setManagedTags(items);
+        })
+        .catch((e) => {
+          if (alive) setError(errorText(e));
+        });
+    else setManagedTags([]);
+    return () => {
+      alive = false;
+    };
+  }, [status.unlocked, status.profiles]);
+  const tagsChanged = (items: string[]) => {
+    setManagedTags(items);
+    setTagFilter(null);
+    void invoke<VaultStatus>("status")
+      .then(setStatus)
+      .catch((e) => setError(errorText(e)));
+  };
   const shown = status.profiles.filter(
     (p) =>
       (filter === null || p.folder === filter) &&
@@ -212,7 +243,7 @@ export default function App() {
       setEditor(null);
       setVaultSecurity(false);
       setShowSnippets(false);
-      setShowLogs(false);
+      setShowTags(false);
       setShowHistory(false);
       setShowKnownHosts(false);
       setStatus((prev) => ({ ...prev, unlocked: false, profiles: [] }));
@@ -236,8 +267,12 @@ export default function App() {
   };
 
   return (
-    <div className="app-shell">
-      <aside className="sidebar">
+    <div className={`app-shell ${sidebarCollapsed ? "sidebar-collapsed" : ""}`}>
+      <aside
+        className="sidebar"
+        id="workspace-sidebar"
+        inert={sidebarCollapsed}
+      >
         <a
           className="brand"
           href="#"
@@ -304,14 +339,6 @@ export default function App() {
           <FileText size={17} />
           <span>Connection history</span>
         </button>
-        <button
-          className="nav-item nav-sub-item"
-          disabled={!status.unlocked}
-          onClick={() => setShowLogs(true)}
-        >
-          <FileText size={15} />
-          <span>Session logs</span>
-        </button>
         <button className="nav-item" onClick={() => setShowKnownHosts(true)}>
           <Fingerprint size={17} />
           <span>Known hosts</span>
@@ -359,6 +386,14 @@ export default function App() {
           <div className="section-label">
             TAGS<span>{tags.length}</span>
           </div>
+          <button
+            className="folder-item"
+            disabled={!status.unlocked}
+            onClick={() => setShowTags(true)}
+          >
+            <Tag size={15} />
+            <span>Manage tags</span>
+          </button>
           {tags.map((tag) => (
             <button
               key={tag}
@@ -377,7 +412,7 @@ export default function App() {
           ))}
           {!tags.length && (
             <div className="sidebar-hint">
-              Add tags such as production, linux, or work to your hosts.
+              Create tags in Manage tags, then assign them in host settings.
             </div>
           )}
         </div>
@@ -423,6 +458,16 @@ export default function App() {
       <div className="main-shell">
         <header className="topbar">
           <div className="breadcrumb">
+            <button
+              className="sidebar-toggle"
+              aria-label={sidebarCollapsed ? "Show sidebar" : "Hide sidebar"}
+              aria-expanded={!sidebarCollapsed}
+              aria-controls="workspace-sidebar"
+              onClick={() => setSidebarCollapsed((value) => !value)}
+              title={sidebarCollapsed ? "Show sidebar" : "Hide sidebar"}
+            >
+              <PanelLeft size={19} />
+            </button>
             <span>Workspace</span>
             <ChevronRight size={13} />
             <strong>{active ? active.profile.name : "Connections"}</strong>
@@ -814,7 +859,7 @@ export default function App() {
           <span>
             <Laptop size={12} />
             On this device<span className="status-separator">|</span>Harbor
-            v0.9.0
+            v0.10.0
           </span>
         </footer>
       </div>
@@ -848,17 +893,20 @@ export default function App() {
           }
           onLogs={() =>
             status.unlocked
-              ? setShowLogs(true)
+              ? setShowHistory(true)
               : setVaultMode(status.vaultPath ? "unlock" : "create")
           }
           onKnownHosts={() => setShowKnownHosts(true)}
         />
       )}
       {showHistory && status.unlocked && (
-        <SessionLogs kind="connection" onClose={() => setShowHistory(false)} />
+        <SessionLogs onClose={() => setShowHistory(false)} />
       )}
-      {showLogs && status.unlocked && (
-        <SessionLogs onClose={() => setShowLogs(false)} />
+      {showTags && status.unlocked && (
+        <TagsManager
+          onClose={() => setShowTags(false)}
+          onChanged={tagsChanged}
+        />
       )}
       {showKnownHosts && (
         <KnownHosts onClose={() => setShowKnownHosts(false)} />
@@ -877,6 +925,8 @@ export default function App() {
         <ConnectionModal
           profile={editor === "new" ? null : editor}
           folders={folders}
+          tags={tags}
+          onTagsChanged={tagsChanged}
           preferences={preferences}
           onClose={() => setEditor(null)}
           onDone={(s) => {
@@ -938,7 +988,7 @@ export default function App() {
             <div className="modal-icon">
               <Anchor size={26} />
             </div>
-            <div className="eyebrow">HARBOR · VERSION 0.9.0</div>
+            <div className="eyebrow">HARBOR · VERSION 0.10.0</div>
             <h2 id="about-title">A workspace you own.</h2>
             <p>
               Harbor stores credentials in a password-protected KeePass KDBX
@@ -1250,12 +1300,16 @@ function VaultModal({
 function ConnectionModal({
   profile,
   folders,
+  tags,
+  onTagsChanged,
   preferences,
   onClose,
   onDone,
 }: {
   profile: Profile | null;
   folders: string[];
+  tags: string[];
+  onTagsChanged: (tags: string[]) => void;
   preferences: Preferences;
   onClose: () => void;
   onDone: (s: VaultStatus) => void;
@@ -1268,17 +1322,22 @@ function ConnectionModal({
   const [folder, setFolder] = useState(
     profile?.folder ?? preferences.defaultGroup,
   );
-  const [tagsText, setTagsText] = useState(profile?.tags.join(", ") ?? "");
-  const [forwards, setForwards] = useState(profile?.forwards ?? []);
-  const [sessionLoggingMode, setSessionLoggingMode] = useState<
-    Profile["sessionLoggingMode"]
-  >(
-    profile?.sessionLoggingMode ??
-      (profile ? (profile.sessionLogging ? "on" : "off") : "inherit"),
+  const [selectedTags, setSelectedTags] = useState<string[]>(
+    profile?.tags ?? [],
   );
-  const [connectionLoggingMode, setConnectionLoggingMode] = useState<
-    Profile["connectionLoggingMode"]
-  >(profile?.connectionLoggingMode ?? "inherit");
+  const [manageTags, setManageTags] = useState(false);
+  const [forwards, setForwards] = useState(profile?.forwards ?? []);
+  const [sessionLogging, setSessionLogging] = useState(
+    profile
+      ? profile.sessionLoggingMode === "inherit"
+        ? preferences.sessionLogging
+        : profile.sessionLoggingMode === "on"
+          ? true
+          : profile.sessionLoggingMode === "off"
+            ? false
+            : profile.sessionLogging
+      : preferences.sessionLogging,
+  );
   const [startupSnippet, setStartupSnippet] = useState(
     profile?.startupSnippet ?? "",
   );
@@ -1325,10 +1384,7 @@ function ConnectionModal({
           host,
           port: Number(port),
           folder,
-          tags: tagsText
-            .split(/[,;]/)
-            .map((t) => t.trim())
-            .filter(Boolean),
+          tags: selectedTags,
           username,
           password:
             authentication.method === "password" &&
@@ -1338,9 +1394,9 @@ function ConnectionModal({
           authentication: authenticationUpdate(authentication),
           forwards,
           startupSnippet: startupSnippet || null,
-          sessionLogging: sessionLoggingMode === "on",
-          sessionLoggingMode,
-          connectionLoggingMode,
+          sessionLogging,
+          sessionLoggingMode: sessionLogging ? "on" : "off",
+          connectionLoggingMode: "inherit",
         },
       });
       setPassword("");
@@ -1354,6 +1410,25 @@ function ConnectionModal({
   };
   return (
     <div className="modal-backdrop">
+      {manageTags && (
+        <TagsManager
+          onClose={() => setManageTags(false)}
+          onChanged={(items, change) => {
+            onTagsChanged(items);
+            setSelectedTags((current) => [
+              ...new Set(
+                current.flatMap((tag) =>
+                  tag === change.oldName
+                    ? change.name
+                      ? [change.name]
+                      : []
+                    : [tag],
+                ),
+              ),
+            ]);
+          }}
+        />
+      )}
       <form
         className="modal"
         role="dialog"
@@ -1426,18 +1501,43 @@ function ConnectionModal({
               <option key={f} value={f} />
             ))}
           </datalist>
-          <label htmlFor="connection-tags">Tags</label>
-          <input
-            id="connection-tags"
-            value={tagsText}
-            onChange={(e) => setTagsText(e.target.value)}
-            placeholder="production, linux, work"
-            aria-describedby="tags-help"
-          />
-          <p id="tags-help" className="field-hint">
-            Separate tags with commas. Up to 20 tags, 40 characters each. Tags
-            are saved in lowercase.
-          </p>
+          <fieldset className="host-tag-picker">
+            <legend>Tags</legend>
+            <div className="host-tag-options">
+              {tags.map((tag) => (
+                <label className="checkbox-label" key={tag}>
+                  <input
+                    type="checkbox"
+                    checked={selectedTags.includes(tag)}
+                    disabled={
+                      !selectedTags.includes(tag) && selectedTags.length >= 20
+                    }
+                    onChange={(e) =>
+                      setSelectedTags((current) =>
+                        e.target.checked
+                          ? [...current, tag]
+                          : current.filter((t) => t !== tag),
+                      )
+                    }
+                  />
+                  {tag}
+                </label>
+              ))}
+            </div>
+            {!tags.length && (
+              <p className="field-hint">
+                No tags yet. Create tags to organise your hosts.
+              </p>
+            )}
+            <button
+              type="button"
+              className="secondary"
+              onClick={() => setManageTags(true)}
+            >
+              Manage tags
+            </button>
+            <p className="field-hint">Select up to 20 tags.</p>
+          </fieldset>
           <div className="credentials-heading">
             <KeyRound size={14} />
             <span>CREDENTIALS</span>
@@ -1485,44 +1585,15 @@ function ConnectionModal({
                 />
               </>
             )}
-          <label htmlFor="host-connection-logging">Connection history</label>
-          <select
-            id="host-connection-logging"
-            value={connectionLoggingMode}
-            onChange={(e) =>
-              setConnectionLoggingMode(
-                e.target.value as Profile["connectionLoggingMode"],
-              )
-            }
-          >
-            <option value="inherit">
-              Use global default ({preferences.connectionLogging ? "on" : "off"}
-              )
-            </option>
-            <option value="on">On</option>
-            <option value="off">Off</option>
-          </select>
-          <p className="field-hint">
-            Records connection attempts and outcomes without terminal output.
-          </p>
-          <label htmlFor="host-session-logging">
-            Terminal session recording
+          <label className="checkbox-label" htmlFor="host-session-logging">
+            <input
+              id="host-session-logging"
+              type="checkbox"
+              checked={sessionLogging}
+              onChange={(e) => setSessionLogging(e.target.checked)}
+            />
+            Record encrypted session log
           </label>
-          <select
-            id="host-session-logging"
-            value={sessionLoggingMode}
-            onChange={(e) =>
-              setSessionLoggingMode(
-                e.target.value as Profile["sessionLoggingMode"],
-              )
-            }
-          >
-            <option value="inherit">
-              Use global default ({preferences.sessionLogging ? "on" : "off"})
-            </option>
-            <option value="on">On</option>
-            <option value="off">Off</option>
-          </select>
           <p className="field-hint">
             Encrypted terminal output may contain echoed secrets. Logging errors
             or the 32 MiB limit close the session. Changes apply to new

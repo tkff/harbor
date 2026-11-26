@@ -31,14 +31,10 @@ function text(log: SavedLog) {
     .replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, "")
     .replace(/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f]/g, "");
 }
-export default function SessionLogs({
-  onClose,
-  kind = "session",
-}: {
-  onClose: () => void;
-  kind?: "session" | "connection";
-}) {
-  const title = kind === "connection" ? "Connection history" : "Session logs";
+export default function SessionLogs({ onClose }: { onClose: () => void }) {
+  const title = "Connection history";
+  const [connection, setConnection] = useState<string | null>(null);
+  const [recordType, setRecordType] = useState("all");
   const [items, setItems] = useState<LogItem[]>([]);
   const [selected, setSelected] = useState<SavedLog | null>(null);
   const [search, setSearch] = useState("");
@@ -106,9 +102,42 @@ export default function SessionLogs({
       setBusy(false);
     }
   }
-  const filteredItems = items.filter(
-    (item) => !item.session || (item.session.logType ?? "session") === kind,
-  );
+  const key = (item: LogItem) =>
+    item.session
+      ? JSON.stringify([item.session.host.toLowerCase(), item.session.port])
+      : item.id;
+  const groups = [...new Set(items.map(key))].map((id) => {
+    const logs = items
+      .filter((item) => key(item) === id)
+      .sort(
+        (a, b) => (b.session?.startedAt ?? 0) - (a.session?.startedAt ?? 0),
+      );
+    return {
+      id,
+      logs,
+      latest: logs[0].session,
+      recordings: logs.filter(
+        (item) =>
+          item.session !== null &&
+          (item.session.logType ?? "session") === "session",
+      ).length,
+    };
+  });
+  const matches = (item: LogItem) =>
+    `${item.session?.name ?? "Unreadable log"} ${item.session?.host ?? ""} ${item.id}`
+      .toLowerCase()
+      .includes(search.toLowerCase());
+  const visibleGroups = groups.filter((group) => group.logs.some(matches));
+  const filteredItems = items
+    .filter(
+      (item) =>
+        key(item) === connection &&
+        (recordType === "all" ||
+          (item.session?.logType ?? "session") === recordType) &&
+        matches(item),
+    )
+    .sort((a, b) => (b.session?.startedAt ?? 0) - (a.session?.startedAt ?? 0));
+  const kind = selected?.session.logType ?? "session";
   const output = selected ? text(selected) : "";
   const end = selected?.records.at(-1);
   return (
@@ -128,17 +157,20 @@ export default function SessionLogs({
         </button>
         <h2 id="logs-title">{title}.</h2>
         <p>
-          Encrypted on this device. Unlock the matching vault to read them.
-          {kind === "session"
-            ? "Output may contain sensitive information echoed by the server."
-            : "Connection history contains outcomes and timestamps, without terminal output."}
+          Search or select a connection to see its history and encrypted session
+          logs. Recordings may contain sensitive information echoed by the
+          server.
         </p>
         <div className="snippet-controls">
           <input
             aria-label={`Search ${title.toLowerCase()}`}
             placeholder="Search host or connection"
             value={search}
-            onChange={(e) => setSearch(e.target.value)}
+            onChange={(e) => {
+              setSearch(e.target.value);
+              setSelected(null);
+              setDeleting(null);
+            }}
           />
           <button
             className="secondary"
@@ -154,43 +186,98 @@ export default function SessionLogs({
           </div>
         )}
         {busy && <p role="status">Loading logs...</p>}
+        {connection && (
+          <div className="history-navigation">
+            <button
+              className="secondary"
+              onClick={() => {
+                setConnection(null);
+                setSelected(null);
+                setDeleting(null);
+                setRecordType("all");
+              }}
+            >
+              All connections
+            </button>
+            <select
+              aria-label="Log type"
+              value={recordType}
+              onChange={(e) => {
+                setRecordType(e.target.value);
+                setSelected(null);
+              }}
+            >
+              <option value="all">History and session logs</option>
+              <option value="connection">Connection events</option>
+              <option value="session">Session logs</option>
+            </select>
+          </div>
+        )}
         <div className="log-list">
-          {filteredItems
-            .filter((item) =>
-              `${item.session?.name} ${item.session?.host} ${item.id}`
-                .toLowerCase()
-                .includes(search.toLowerCase()),
-            )
-            .map((item) => (
-              <div className="log-row" key={item.id}>
-                <button
-                  className="snippet-pick"
-                  disabled={busy}
-                  onClick={() => void view(item.id)}
-                >
-                  <strong>{item.session?.name ?? "Unreadable log"}</strong>
-                  <span>
-                    {item.session
-                      ? `${item.session.host}:${item.session.port} - ${new Date(item.session.startedAt).toLocaleString()}`
-                      : item.error}
-                  </span>
-                </button>
-                <button
-                  className="secondary"
-                  aria-label={`Delete log ${item.session?.name ?? item.id}`}
-                  disabled={busy}
-                  onClick={() => setDeleting(item.id)}
-                >
-                  Delete
-                </button>
-              </div>
-            ))}
-          {!busy && !filteredItems.length && (
-            <p>
-              No logs yet. Check logging defaults or a host's connection
-              settings, then connect.
-            </p>
-          )}
+          {!connection
+            ? visibleGroups.map((group) => (
+                <div className="log-row" key={group.id}>
+                  <button
+                    className="snippet-pick"
+                    disabled={busy}
+                    onClick={() => {
+                      setConnection(group.id);
+                      setSearch("");
+                      setSelected(null);
+                      setRecordType("all");
+                    }}
+                  >
+                    <strong>{group.latest?.name ?? "Unreadable log"}</strong>
+                    <span>
+                      {group.latest
+                        ? `${group.latest.host}:${group.latest.port}`
+                        : group.logs[0].error}
+                    </span>
+                    <span>
+                      {group.logs.length} records / {group.recordings} session
+                      logs
+                    </span>
+                  </button>
+                </div>
+              ))
+            : filteredItems.map((item) => (
+                <div className="log-row" key={item.id}>
+                  <button
+                    className="snippet-pick"
+                    disabled={busy}
+                    onClick={() => void view(item.id)}
+                  >
+                    <strong>
+                      {!item.session
+                        ? "Unreadable log"
+                        : (item.session.logType ?? "session") === "connection"
+                          ? "Connection events"
+                          : "Session recording"}
+                    </strong>
+                    <span>
+                      {item.session
+                        ? `${item.session.name} - ${new Date(item.session.startedAt).toLocaleString()}`
+                        : item.error}
+                    </span>
+                  </button>
+                  <button
+                    className="secondary"
+                    aria-label={`Delete log ${item.session?.name ?? item.id}`}
+                    disabled={busy}
+                    onClick={() => setDeleting(item.id)}
+                  >
+                    Delete
+                  </button>
+                </div>
+              ))}
+          {!busy &&
+            !(connection ? filteredItems.length : visibleGroups.length) && (
+              <p>
+                {items.length
+                  ? "No matching logs. Change the search or log type."
+                  : "No history or session logs yet. Enable connection history in Settings, or session recording in a host's settings, then connect."}
+              </p>
+            )}
         </div>
         {deleting && (
           <div className="snippet-delete">
@@ -217,9 +304,21 @@ export default function SessionLogs({
         {selected && (
           <>
             <h3>
+              {kind === "connection" ? "Connection events: " : "Session log: "}
               {selected.session.name} - {selected.session.host}:
               {selected.session.port}
             </h3>
+            {kind === "connection" && (
+              <button
+                className="secondary"
+                onClick={() => {
+                  setRecordType("session");
+                  setSelected(null);
+                }}
+              >
+                Show session logs for this connection
+              </button>
+            )}
             <p className="field-hint">
               {selected.complete
                 ? `Finished ${end?.kind === "end" ? new Date(end.at).toLocaleString() : ""}. ${end?.kind === "end" ? end.reason : ""}`

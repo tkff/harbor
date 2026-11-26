@@ -17,6 +17,7 @@ use std::{
 };
 use uuid::Uuid;
 use zeroize::Zeroizing;
+mod tags;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -954,6 +955,8 @@ impl Storage {
         if p.session_logging {
             ensure_log_key(&mut candidate)?;
         }
+        // Preserve legacy tags too when the last host assignment is unchecked.
+        tags::preserve(&mut candidate, &tags)?;
         let new_id = if existing.is_none() {
             Some(candidate.root_mut().add_entry().id())
         } else {
@@ -1030,6 +1033,7 @@ impl Storage {
         let entry_id = self.entry_id(id)?;
         let vault = self.vault.as_mut().context("Unlock your vault first")?;
         let mut candidate = vault.db.clone();
+        tags::preserve(&mut candidate, &[])?;
         candidate
             .entry_mut(entry_id)
             .context("Credential entry is missing")?

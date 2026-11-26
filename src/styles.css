@@ -2129,3 +2129,54 @@ button.primary:hover {
   font-size: 11px;
   margin-top: -2px;
 }
+
+.sidebar-collapsed .sidebar {
+  display: none;
+}
+.sidebar-toggle {
+  background: transparent;
+  color: inherit;
+  padding: 6px;
+  border-radius: 5px;
+}
+.sidebar-toggle:hover {
+  background: var(--line);
+}
+.host-tag-picker {
+  margin: 18px 0;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  min-width: 0;
+}
+.host-tag-picker legend {
+  font-size: 12px;
+  font-weight: 600;
+}
+.host-tag-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 18px;
+  max-height: 160px;
+  overflow: auto;
+  margin-bottom: 10px;
+}
+.host-tag-options .checkbox-label {
+  margin: 2px 0;
+}
+.tag-actions {
+  display: flex;
+  gap: 6px;
+}
+.tag-manager-backdrop {
+  z-index: 150;
+}
+
+.history-navigation {
+  display: flex;
+  gap: 12px;
+  margin: 12px 0;
+}
+.history-navigation select {
+  flex: 1;
+}

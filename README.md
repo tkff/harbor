@@ -2,7 +2,7 @@
 
 A local-first desktop SSH workspace built with Tauri 2, React, TypeScript, Rust, russh, and xterm.js. Open source under MIT. Harbor is a working name.
 
-## Version 0.8.2 alpha
+## Version 0.10.0 alpha
 
 - Create or unlock a password-protected KeePass KDBX vault.
 - Add, edit, search, organize, and delete saved SSH connections.
@@ -42,7 +42,7 @@ Local terminals support keyboard input, resizing, terminal themes, and the same 
 
 Open **Settings** in the sidebar, including while the vault is locked. **Appearance** controls the app theme (system/light/dark), accent color, connection list density, and reduced motion. **Terminal** has a separate color scheme selector (Harbor dark, Paper light, High contrast), font presets/size, line height, cursor shape/blink, and scrollback. App and terminal themes are independent: a dark app can have a light terminal and vice versa.
 
-Save changes to apply them. Open terminal sessions update without reconnecting; lowering the scrollback limit removes older buffered lines. Fonts must be installed on your computer or a monospace fallback is used. The Terminal tab includes a live draft preview. **Connections** sets the initial SSH port and group for newly created hosts; it does not modify saved connections. Terminal recording defaults to off; connection history defaults to on. Settings > Logs controls both global defaults, with host-level overrides.
+Save changes to apply them. Open terminal sessions update without reconnecting; lowering the scrollback limit removes older buffered lines. Fonts must be installed on your computer or a monospace fallback is used. The Terminal tab includes a live draft preview. **Connections** sets the initial SSH port and group for newly created hosts; it does not modify saved connections. Connection history defaults to on and is controlled only in Settings > Logs. Session recording uses a per-host checkbox; Settings > Logs sets its initial value for new hosts.
 
 Preferences are validated and atomically saved to `settings.json` in the app data folder, outside the vault. **Storage & security** shows local paths and links to existing security, logging, and trust views. Each editable section has a restore-defaults action; defaults are not applied until saved. Unsaved changes prompt before closing. Automatic idle/OS locking, retention cleanup, log rotation, and cloud sync remain planned.
 
@@ -52,17 +52,19 @@ When the SSH server rejects authentication, Harbor opens a credential prompt. Co
 
 ## Connection history and global logging defaults
 
-**Connection history** is enabled by default and records each attempt, successful authentication, established shells, failures, and disconnect reasons. It never records terminal output or raw keyboard input. Failed logins and unreachable hosts are recorded too. History is saved in separate encrypted files from terminal recordings, using the same protected vault log key. Opening **Connection history** in the sidebar shows the event timeline; **Session logs**, directly underneath Connection history, shows terminal recordings.
+**Connection history** is enabled by default and records each attempt, successful authentication, established shells, failures, and disconnect reasons. It never records terminal output or raw keyboard input. Failed logins and unreachable hosts are recorded too. History is saved in separate encrypted files from terminal recordings, using the same protected vault log key. Open **Connection history** in the sidebar, search or select a host, then choose a connection event log or session recording. Records are grouped by hostname and port, including older logs and recordings made while connection history was disabled.
 
-**Settings > Logs** controls global defaults for connection history (on) and terminal recordings (off). Each host has independent **Use global default / On / Off** choices for both. These settings apply to new connections. Existing hosts retain their prior explicit terminal-recording choice; connection history inherits the global default. New hosts inherit both defaults. The protected log key is created in the vault when logging is first needed, so the vault must be writable for this first connection. Keep a current vault backup with that key.
+**Settings > Logs** is the only control for connection history and applies to all new SSH attempts. Old per-host connection-history overrides are ignored. Session recording uses the **Record encrypted session log** checkbox in host settings. The global session-log preference supplies its initial value for new hosts; saving a host makes its checkbox choice explicit. Older hosts that used an inherited recording default retain that behaviour until you save their checkbox.
+
+The protected log key is created in the vault when logging is first needed, so the vault must be writable for this first connection. Keep a current vault backup with that key.
 
 ## Encrypted session logs
 
-Set **Terminal session recording** to **On**, or inherit the global recording default, in a host's connection editor. The global recording default is off and changes apply to new sessions. Harbor records remote terminal output, encrypted connection metadata, timestamps, and a close reason. Raw keystrokes and authentication credentials are not recorded directly; commands or secrets echoed by the server can still appear in output. Terminal recording starts after successful SSH authentication and the terminal displays an active recording indicator.
+Check **Record encrypted session log** in a host's connection editor. Changes apply to new sessions. Harbor records remote terminal output, encrypted connection metadata, timestamps, and a close reason. Raw keystrokes and authentication credentials are not recorded directly; commands or secrets echoed by the server can still appear in output. Terminal recording starts after successful SSH authentication and the terminal displays an active recording indicator.
 
 Logs are stored outside the vault under the app data directory's `session-logs` folder. Filenames are random UUIDs and file contents are AES-256-GCM authenticated encrypted records. A protected key entry inside the KDBX vault derives a different key for each file using HKDF-SHA256 and a random salt. Records use unique counters and authenticated file IDs, salt, and sequence numbers. Do not delete the **Harbor session log encryption key** entry from the vault: without it, existing logs cannot be decrypted. Normal password changes retain this entry. A backup made before logging was first enabled does not contain the key.
 
-Open **Session logs** in the sidebar after unlocking the matching vault. Search, read a text preview, refresh, or explicitly delete saved files after closing SSH sessions. The viewer marks files without an authenticated end record as incomplete or still recording. Damaged or partial encrypted records fail validation. A truncated file ending exactly at a record boundary appears incomplete; the format cannot distinguish that from an interrupted recording. Text previews remove terminal escape sequences and limit displayed output to two million characters; full-screen terminal applications may show repeated screen updates.
+Open **Connection history**, select a connection, and choose **Session logs** in the log-type filter after unlocking the matching vault. Search, read a text preview, refresh, or explicitly delete saved files after closing SSH sessions. The viewer marks files without an authenticated end record as incomplete or still recording. Damaged or partial encrypted records fail validation. A truncated file ending exactly at a record boundary appears incomplete; the format cannot distinguish that from an interrupted recording. Text previews remove terminal escape sequences and limit displayed output to two million characters; full-screen terminal applications may show repeated screen updates.
 
 Each file has a 32 MiB limit. If encrypted logging fails or reaches that limit, the SSH session disconnects and reports the reason instead of silently dropping output. Automatic rotation, retention cleanup, replay, and export are not implemented yet. Copy the encrypted log files as well as the matching vault to back them up or move them to another device. Vault cloud sync does not automatically sync log files. Filesystem sizes and modification times remain visible to the operating system.
 
@@ -84,11 +86,11 @@ References use the snippet's KDBX UUID, so they remain valid when moving the vau
 
 ## Groups and tags
 
-Each host belongs to one group (General by default) and can have up to 20 tags. Set the group and comma-separated tags in **New connection** or **Edit connection**. Existing folders become groups automatically. Tags are trimmed, lowercased, deduplicated, and limited to 40 characters each.
+Each host belongs to one group (General by default) and can have up to 20 tags. Choose tags using checkboxes in **New connection** or **Edit connection**. Open **Manage tags** in the sidebar or host settings to create, search, rename, and delete tags. New names are trimmed, lowercased, and limited to 40 characters without commas or semicolons. Renaming updates all host assignments; deleting removes the tag from hosts without deleting the hosts. A duplicate name is rejected.
 
-Select a group in the sidebar, then optionally select a tag to narrow it further. Click the selected tag again or the tag filter's × button to clear it. Search matches host names, addresses, groups, and tags. Tags on host rows are clickable filters.
+Existing host tags appear automatically. Unused tags remain available. The registry is stored in a `Harbor.Type=tagRegistry` KDBX entry, and host assignments remain native KDBX tags. Copying the vault carries both to another computer. Snippet tags stay independent. Normal vault backups and external-change checks apply to tag edits.
 
-Groups use the existing portable `Harbor.Folder` field; tags use native KDBX entry tags, visible in KeePass-compatible applications. Both are recovered when opening the vault on another computer. Empty groups and standalone tags are not stored; they disappear from the sidebar when no host uses them.
+Select a group and optionally a tag in the sidebar to filter hosts. Search matches names, addresses, groups, and tags. The sidebar can be hidden using the menu button in the top bar. Opening or switching to a terminal hides it automatically; the same button restores it without closing the terminal. Returning to Connections shows the sidebar again.
 
 ## SSH private keys and OpenSSH certificates
 
@@ -220,3 +222,5 @@ Select output with the mouse, then use the terminal toolbar's **Copy** button, *
 Version 0.8.2 validation covers copy/interrupt shortcut routing, multiline mouse selection followed by Copy and paste into a text field, native clipboard plugin registration and write-only permissions, plus the backend and KDBX compatibility suites.
 
 Version 0.9.0 adds local PTY terminals and nests Session logs under Connection history. Local terminal tests cover command execution, PTY resizing, final output before exit, pending cancellation, and closing a running shell. Windows tests passed; macOS/Linux builds were not run locally for this change.
+
+Version 0.10.0 unifies history and recording navigation, restores the host recording checkbox, adds managed tags, and automatically hides the sidebar in terminal tabs.

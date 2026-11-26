@@ -4,7 +4,7 @@ Status: initial Settings screen implemented in v0.7.0. App appearance, terminal 
 
 ## Settings structure
 
-Use a sidebar Settings page with Appearance, Terminal, Connections, Logs, Security, and Storage sections. Show which changes apply immediately and which apply to new sessions. Include Restore defaults per section. Keep global defaults separate from per-host overrides, and show inherited values clearly.
+Use a sidebar Settings page with Appearance, Terminal, Connections, Logs, Security, and Storage sections. Show which changes apply immediately and which apply to new sessions. Include Restore defaults per section. Connection history is global only. Session recording uses a host checkbox, with a global initial value for new hosts.
 
 | Section | Proposed options | Proposed starting defaults |
 | --- | --- | --- |
@@ -18,10 +18,10 @@ Use a sidebar Settings page with Appearance, Terminal, Connections, Logs, Securi
 
 ## Current logging behavior
 
-- Connection history defaults to on and terminal recording defaults to off. Both have global settings and per-host Use global / On / Off overrides; changes affect new sessions.
+- Connection history defaults to on, is controlled only globally, and ignores legacy per-host overrides. Terminal recording uses a host checkbox. Its global setting supplies the default for new hosts; legacy inherited recording choices remain supported until the host is saved. Changes affect new sessions.
 - AES-256-GCM encrypted records live in the app data directory's `session-logs` folder. The matching KDBX vault holds the protected encryption key. Keys are never saved in application preferences.
 - Each encrypted file has a 32 MiB hard limit. Recording errors or the limit disconnect the session with a visible reason, so recording does not silently stop.
-- The current log viewer supports search, text preview, refresh, and explicit deletion. Close sessions before deleting logs. There is no automatic retention cleanup yet.
+- Connection history provides a searchable host list; selecting a host reveals its event logs and session recordings, with text preview, refresh, and explicit deletion. Close sessions before deleting logs. There is no automatic retention cleanup yet.
 - Plan rotation and retention together: rotate before reaching the limit, keep explicit completion markers, skip active files, and let users review cleanup policy before enabling it.
 - Plaintext export must be an explicit action with a clear destination. Cloud log sync should be separate from vault sync and off by default.
 
@@ -47,6 +47,8 @@ Credential recovery is now available after a rejected SSH login: users can retry
 
 Appearance: system/light/dark app themes, teal/blue/violet accent, comfortable/compact host list, reduced motion. Terminal: Harbor dark/Paper light/High contrast color schemes, four font presets with local fallback, 10-28 px font size, line height, bar/block/underline cursor, blinking cursor, and 1,000-50,000 scrollback lines. Changes apply to existing terminals without reconnecting. App and terminal themes are independent. Connections: default SSH port and group for newly created hosts. Settings are validated and written atomically to local settings.json. Each section supports restoring defaults; unsaved changes have an explicit discard prompt. Storage and security show local file locations and links to existing vault security, log, and known-host controls.
 
-## Logging defaults implemented in v0.8.0
+## Logging controls (updated in v0.10.0)
 
-Settings > Logs now controls encrypted connection history (on by default) and terminal output recording (off by default). Each host can inherit either global setting or explicitly select On/Off. History and recordings are separate encrypted files and separate viewer panels. Retention, rotation, and cloud sync remain planned.
+Settings > Logs controls connection history globally (on by default) and the initial recording checkbox for new hosts (off by default). Host settings have an explicit session recording checkbox. History and recordings remain separate encrypted files, accessed together through the Connection history host list. Retention, rotation, and cloud sync remain planned.
+
+The sidebar can be shown or hidden with the top-bar menu button. Terminal tabs automatically hide it; returning to Connections restores it. Managed host tags live in the vault and are edited from the sidebar or host editor.

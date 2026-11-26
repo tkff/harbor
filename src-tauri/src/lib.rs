@@ -142,6 +142,36 @@ fn known_hosts(state: State<AppState>) -> Result<Vec<storage::KnownHost>, String
     state.store.lock().unwrap().known_hosts().map_err(message)
 }
 #[tauri::command]
+fn list_tags(state: State<AppState>) -> Result<Vec<String>, String> {
+    state.store.lock().unwrap().tags().map_err(message)
+}
+#[tauri::command]
+async fn save_tag(
+    state: State<'_, AppState>,
+    old_name: Option<String>,
+    name: String,
+) -> Result<Vec<String>, String> {
+    let store = state.store.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        store
+            .lock()
+            .unwrap()
+            .save_tag(old_name, name)
+            .map_err(message)
+    })
+    .await
+    .map_err(message)?
+}
+#[tauri::command]
+async fn delete_tag(state: State<'_, AppState>, name: String) -> Result<Vec<String>, String> {
+    let store = state.store.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        store.lock().unwrap().delete_tag(name).map_err(message)
+    })
+    .await
+    .map_err(message)?
+}
+#[tauri::command]
 async fn list_session_logs(
     state: State<'_, AppState>,
 ) -> Result<Vec<session_logs::ListItem>, String> {
@@ -502,6 +532,9 @@ pub fn run() {
             save_connection,
             list_snippets,
             known_hosts,
+            list_tags,
+            save_tag,
+            delete_tag,
             list_session_logs,
             read_session_log,
             delete_session_log,

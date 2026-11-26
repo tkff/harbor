@@ -406,7 +406,7 @@ export default function Settings({
           )}
           {section === "logs" && (
             <>
-              <h3>Global logging defaults</h3>
+              <h3>Logging</h3>
               <label className="checkbox-label">
                 <input
                   type="checkbox"
@@ -427,13 +427,15 @@ export default function Settings({
                   checked={draft.sessionLogging}
                   onChange={(e) => change("sessionLogging", e.target.checked)}
                 />
-                Record encrypted terminal sessions
+                Record session logs for new hosts by default
               </label>
               <p className="field-hint">
-                Off by default. Records terminal output, which may include
-                echoed commands or secrets. Hosts can use these defaults or
-                explicitly enable or disable either log. Changes apply to new
-                connections.
+                Off by default. Sets the initial session-log checkbox for new
+                hosts. Each host saves its own recording choice. Older hosts
+                that used the global default keep that behaviour until you save
+                their checkbox. Terminal output may include echoed secrets.
+                Connection history is controlled only here and applies to every
+                SSH host.
               </p>
             </>
           )}
@@ -476,7 +478,7 @@ export default function Settings({
                     onLogs();
                   }}
                 >
-                  Session logs
+                  Connection history and logs
                 </button>
                 <button
                   type="button"
