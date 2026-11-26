@@ -2,7 +2,7 @@
 
 A local-first desktop SSH workspace built with Tauri 2, React, TypeScript, Rust, russh, and xterm.js. Open source under MIT. Harbor is a working name.
 
-## Version 0.8.0 alpha
+## Version 0.8.1 alpha
 
 - Create or unlock a password-protected KeePass KDBX vault.
 - Add, edit, search, organize, and delete saved SSH connections.
@@ -202,3 +202,7 @@ Version 0.7.1 fixes initial terminal fitting so padding cannot hide the last row
 Terminal fitting regression checks verified the bottom row before keyboard input, with large fonts/line height, with the forwarding panel open, and with encrypted logging's recording banner visible.
 
 Version 0.8.0 separates encrypted connection history from terminal recordings, adds independent global defaults and per-host inheritance, and validates failed/successful connection history without output capture in the SSH integration test.
+
+Version 0.8.1 adds a prominent connection-failure panel for timeouts, unreachable hosts, refused connections, and other failed setup attempts. It shows the complete error plus Edit host and Retry connection. Retrying after editing uses the latest saved host settings.
+
+The timeout recovery UI was checked through Edit host, changing hostname and port, saving, and retrying successfully with the corrected values. Retried connections retain the active terminal tab.

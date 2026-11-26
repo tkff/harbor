@@ -2049,3 +2049,52 @@ button.primary:hover {
   border-radius: 6px;
   font: inherit;
 }
+
+.connection-failure {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  padding: 18px 22px;
+  background: #fff0e9;
+  color: #753a2e;
+  border-bottom: 1px solid #e5c3b5;
+}
+.connection-failure > div:first-child {
+  min-width: 0;
+}
+.connection-failure h3 {
+  margin: 0 0 5px;
+  font-size: 16px;
+}
+.connection-failure p {
+  margin: 5px 0 0;
+  overflow-wrap: anywhere;
+  font-size: 12px;
+  line-height: 1.5;
+}
+.connection-failure-reason {
+  max-height: 110px;
+  overflow: auto;
+  white-space: pre-wrap;
+  user-select: text;
+}
+.connection-failure-actions {
+  flex-shrink: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+:root[data-theme="dark"] .connection-failure {
+  background: #3c2c2b;
+  color: #f0c5b8;
+  border-color: #70514a;
+}
+@media (max-width: 1100px) {
+  .connection-failure {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 12px;
+  }
+}

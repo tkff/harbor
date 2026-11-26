@@ -25,6 +25,7 @@ export default function TerminalPane({
   takeCredentials,
   onRetry,
   onEdit,
+  onReconnect,
 }: {
   session: Session;
   preferences: Preferences;
@@ -33,6 +34,7 @@ export default function TerminalPane({
   takeCredentials: (id: string) => LoginCredentials | null;
   onRetry: (credentials: LoginCredentials) => void;
   onEdit: () => void;
+  onReconnect: () => void;
 }) {
   const mount = useRef<HTMLDivElement>(null);
   const terminal = useRef<Terminal | null>(null);
@@ -45,6 +47,9 @@ export default function TerminalPane({
     { type: "authenticationFailed" }
   > | null>(null);
   const [retryOpen, setRetryOpen] = useState(false);
+  const [connectionFailure, setConnectionFailure] = useState<string | null>(
+    null,
+  );
   const [message, setMessage] = useState("Establishing a secure connection…");
   const [showForwards, setShowForwards] = useState(false);
   const [showSnippets, setShowSnippets] = useState(false);
@@ -106,6 +111,7 @@ export default function TerminalPane({
     const showClosed = (text: string) => {
       if (!alive || reportedClose) return;
       reportedClose = true;
+      if (!connected) setConnectionFailure(text);
       connected = false;
       setHostKey(null);
       setMessage(text);
@@ -274,6 +280,26 @@ export default function TerminalPane({
           </>
         )}
       </div>
+      {connectionFailure && !(authFailure && retryOpen) && (
+        <div className="connection-failure" role="alert">
+          <div>
+            <h3>Connection failed</h3>
+            <p className="connection-failure-target">
+              {session.profile.name} - {session.profile.host}:
+              {session.profile.port}
+            </p>
+            <p className="connection-failure-reason">{connectionFailure}</p>
+          </div>
+          <div className="connection-failure-actions">
+            <button className="primary" onClick={onEdit}>
+              Edit host
+            </button>
+            <button className="secondary" onClick={onReconnect}>
+              Retry connection
+            </button>
+          </div>
+        </div>
+      )}
       {showSnippets && session.state === "connected" && active && (
         <Snippets
           sessionName={session.profile.name}

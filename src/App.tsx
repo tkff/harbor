@@ -141,11 +141,12 @@ export default function App() {
   const closeTab = (id: string) => {
     retryCredentials.current.delete(id);
     void invoke("ssh_close", { sessionId: id }).catch(() => {});
-    setSessions((prev) => {
-      const next = prev.filter((s) => s.id !== id);
-      if (activeId === id) setActiveId(next.at(-1)?.id ?? null);
-      return next;
-    });
+    setSessions((prev) => prev.filter((s) => s.id !== id));
+    setActiveId((current) =>
+      current === id
+        ? (sessions.filter((s) => s.id !== id).at(-1)?.id ?? null)
+        : current,
+    );
   };
   const connect = (profile: Profile, credentials?: LoginCredentials) => {
     const session: Session = {
@@ -732,6 +733,13 @@ export default function App() {
                   credentials,
                 );
               }}
+              onReconnect={() => {
+                closeTab(session.id);
+                connect(
+                  status.profiles.find((p) => p.id === session.profile.id) ??
+                    session.profile,
+                );
+              }}
               onEdit={() =>
                 setEditor(
                   status.profiles.find((p) => p.id === session.profile.id) ??
@@ -756,7 +764,7 @@ export default function App() {
           <span>
             <Laptop size={12} />
             On this device<span className="status-separator">|</span>Harbor
-            v0.8.0
+            v0.8.1
           </span>
         </footer>
       </div>
@@ -880,7 +888,7 @@ export default function App() {
             <div className="modal-icon">
               <Anchor size={26} />
             </div>
-            <div className="eyebrow">HARBOR · VERSION 0.8.0</div>
+            <div className="eyebrow">HARBOR · VERSION 0.8.1</div>
             <h2 id="about-title">A workspace you own.</h2>
             <p>
               Harbor stores credentials in a password-protected KeePass KDBX
