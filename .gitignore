@@ -21,3 +21,5 @@ id_ecdsa
 .DS_Store
 *.tsbuildinfo
 *.hlog
+
+release-artifacts/

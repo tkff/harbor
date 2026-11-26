@@ -166,6 +166,7 @@ export default function SessionLogs({ onClose }: { onClose: () => void }) {
             aria-label={`Search ${title.toLowerCase()}`}
             placeholder="Search host or connection"
             value={search}
+            disabled={busy}
             onChange={(e) => {
               setSearch(e.target.value);
               setSelected(null);
@@ -190,6 +191,7 @@ export default function SessionLogs({ onClose }: { onClose: () => void }) {
           <div className="history-navigation">
             <button
               className="secondary"
+              disabled={busy}
               onClick={() => {
                 setConnection(null);
                 setSelected(null);
@@ -201,6 +203,7 @@ export default function SessionLogs({ onClose }: { onClose: () => void }) {
             </button>
             <select
               aria-label="Log type"
+              disabled={busy}
               value={recordType}
               onChange={(e) => {
                 setRecordType(e.target.value);
@@ -310,6 +313,7 @@ export default function SessionLogs({ onClose }: { onClose: () => void }) {
             </h3>
             {kind === "connection" && (
               <button
+                disabled={busy}
                 className="secondary"
                 onClick={() => {
                   setRecordType("session");

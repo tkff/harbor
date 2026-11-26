@@ -1,6 +1,6 @@
 {
   "name": "harbor-ssh",
-  "version": "0.11.0",
+  "version": "0.11.1",
   "private": true,
   "type": "module",
   "license": "MIT",
@@ -12,8 +12,10 @@
     "desktop": "tauri dev",
     "package": "tauri build",
     "test:backend": "cargo test --manifest-path src-tauri/Cargo.toml --lib",
-    "test:interop": "cargo test --manifest-path src-tauri/Cargo.toml independent_kdbx_interoperability -- --ignored --nocapture",
-    "test:terminal": "node --experimental-strip-types scripts/check-terminal-shortcuts.mjs"
+    "test:interop": "cargo test --locked --manifest-path src-tauri/Cargo.toml independent_kdbx_interoperability -- --ignored --nocapture",
+    "test:terminal": "node --experimental-strip-types scripts/check-terminal-shortcuts.mjs",
+    "check:version": "node scripts/check-version.mjs",
+    "test:release": "node scripts/check-release.mjs"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.10.0",

@@ -1,0 +1,73 @@
+name: Build desktop packages
+on:
+  workflow_call:
+    inputs:
+      ref:
+        type: string
+        required: true
+permissions:
+  contents: read
+jobs:
+  desktop:
+    name: ${{ matrix.id }}
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - id: windows-x64
+            os: windows-latest
+            args: --bundles nsis,msi
+          - id: linux-x64
+            os: ubuntu-24.04
+            args: --bundles deb,appimage
+          - id: macos-universal
+            os: macos-latest
+            args: --target universal-apple-darwin --bundles dmg
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          ref: ${{ inputs.ref }}
+          persist-credentials: false
+      - uses: actions/setup-node@v7.1.0
+        with:
+          node-version: 22
+          cache: npm
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - name: Install macOS Rust targets
+        if: runner.os == 'macOS'
+        run: rustup target add aarch64-apple-darwin x86_64-apple-darwin
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+          key: ${{ matrix.id }}
+      - name: Install Linux dependencies
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libwebkit2gtk-4.1-dev build-essential libssl-dev librsvg2-dev libayatana-appindicator3-dev patchelf xdg-utils
+      - run: npm ci
+      - run: npm run check:version
+      - run: npm run test:release
+      - run: npm run build
+      - run: npm run test:terminal
+      - run: cargo fmt --manifest-path src-tauri/Cargo.toml --check
+      - run: cargo test --locked --manifest-path src-tauri/Cargo.toml --lib
+      - run: npm run test:interop
+      - run: cargo clippy --locked --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings
+      - name: Package desktop app
+        run: npm run tauri -- build --ci ${{ matrix.args }} -- --locked
+        env:
+          APPLE_SIGNING_IDENTITY: ${{ runner.os == 'macOS' && '-' || '' }}
+      - name: Collect installers
+        run: node scripts/release-assets.mjs collect ${{ matrix.id }}
+      - name: Check dependency locks were preserved
+        run: git diff --exit-code -- package-lock.json src-tauri/Cargo.lock
+      - uses: actions/upload-artifact@v7.0.2
+        with:
+          name: installers-${{ matrix.id }}
+          path: release-artifacts/*
+          if-no-files-found: error
+          retention-days: 14
+          compression-level: 0

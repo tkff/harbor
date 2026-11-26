@@ -2,7 +2,7 @@
 
 A local-first desktop SSH workspace built with Tauri 2, React, TypeScript, Rust, russh, and xterm.js. Open source under MIT. Harbor is a working name.
 
-## Version 0.11.0 alpha
+## Version 0.11.1 alpha
 
 - Create or unlock a password-protected KeePass KDBX vault.
 - Add, edit, search, organize, and delete saved SSH connections.
@@ -228,3 +228,15 @@ Version 0.9.0 adds local PTY terminals and nests Session logs under Connection h
 Version 0.10.0 unifies history and recording navigation, restores the host recording checkbox, adds managed tags, and automatically hides the sidebar in terminal tabs.
 
 Version 0.11.0 adds dynamic SOCKS5 TCP forwarding. Protocol tests cover address formats, fragmented and rejected requests; loopback SSH integration verifies binary half-close transfers, remote-only hostname resolution, stop/restart, and close/lock cleanup.
+
+## Automated builds and releases
+
+GitHub Actions runs the shared desktop checks on branch pushes and pull requests. Each platform runs version consistency checks, release-script tests, frontend checks, backend tests, independent KDBX interoperability tests, and Clippy before packaging installers. Workflow artifacts are retained for 14 days.
+
+Pushing a version tag such as `v0.11.1` runs **Publish Harbor release**. Its tag must match package.json, package-lock.json, Cargo.toml, Cargo.lock, and tauri.conf.json. All builds use the validated commit. The release is published as an alpha/prerelease only after every platform succeeds: Windows x64 EXE/MSI, Linux x64 DEB/AppImage, and a universal macOS DMG for Apple Silicon and Intel. SHA256SUMS accompanies the installers. Partial uploads remain draft, and published releases cannot be overwritten by rerunning the workflow.
+
+To release a new version, update all version fields and RELEASE_NOTES.md, commit, create the matching `vVERSION` tag, and push it. To retry an existing unpublished tag, use the workflow's Run workflow button and enter that tag. Use a new version/tag for a corrected published release. Normal commits never publish a release.
+
+Publishing uses GitHub's automatic token, with write permission restricted to the final publication job. Signing certificates and a separate server are not required for this initial alpha pipeline. Windows installers remain unsigned; macOS uses ad-hoc signing without Apple notarization. Automatic app updating is not implemented.
+
+Version 0.11.1 also prevents changing history navigation or filters during a pending recording read, so a late response cannot bring back a recording from the previous view.

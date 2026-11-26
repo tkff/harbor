@@ -48,3 +48,12 @@ For future consideration only. The user explicitly requested no implementation; 
 See [SETTINGS_PLAN.md](SETTINGS_PLAN.md) for remaining preference, locking, log retention/rotation, and sync work. SFTP and split panes are also planned.
 
 Local PTY terminals are implemented. Planned improvements: custom shell selection, local snippets, and encrypted local session recording.
+
+## Release automation (implemented in v0.11.1)
+
+- [x] Shared desktop checks and packaging for Windows, macOS, and Linux.
+- [x] Version-tag validation and installer completeness checks.
+- [x] Publish alpha releases only after all platform checks and builds pass.
+- [x] Generate SHA-256 installer checksums and prevent published-release overwrites.
+- [ ] Developer certificate signing and Apple notarization.
+- [ ] Signed automatic updates.
